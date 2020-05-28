@@ -41,7 +41,6 @@ int main(int argc, char *argv[]) {
 
     std::fstream input(filename);
 
-    // TODO(hzeller): make configurable via a flag.
     const int machine_fd = OpenMachineConnection(connection_string.c_str());
     if (machine_fd < 0) {
         fprintf(stderr, "Failed to connect to: %s\n", connection_string.c_str());
