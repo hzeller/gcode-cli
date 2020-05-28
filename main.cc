@@ -24,31 +24,36 @@ static bool reliable_write(int fd, const char *buffer, int len) {
     return true;
 }
 
+static int usage(const char *progname) {
+    fprintf(stderr, "usage:\n"
+            "%s <gcode-file> [connection-string]\n"
+            "\nConnection string is comprised of device-name and an optional\n"
+            "bit-rate directly separated with a comma.\nThese are valid "
+            "connection strings; notice the 'b' prefix for the bit-rate:\n"
+            "\t/dev/ttyACM0\n"
+            "\t/dev/ttyACM0,b115200\n"
+            "Available bit-rates are one of [9600, 19200, 38400, 57600, "
+            "115200, 230400, 460800]\n", progname);
+
+    fprintf(stderr, "\nExample:\n%s file.gcode /dev/ttyACM0,b115200\n",
+            progname);
+    return 1;
+}
+
 int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        fprintf(stderr, "usage: %s <gcode-file> [connection string]\n", argv[0]);
-        fprintf(stderr, "Example: %s file.gcode /dev/ttyACM0,b115200\n", argv[0]);
+    if (argc < 2)
+        return usage(argv[0]);
 
-        return 1;
-    }
-    const char *filename = argv[1];
-
+    const char *const filename = argv[1];
     std::fstream input(filename);
 
-    int machine_fd=-1;
-
-    if (argc >= 3) {
-        machine_fd = OpenMachineConnection(argv[2]);
-    }
-    else {
-        //use default connection string if not present
-        machine_fd=OpenMachineConnection("/dev/ttyACM0,b115200");
-    }
-
+    const char *connect_str = (argc >= 3) ? argv[2] : "/dev/ttyACM0,b115200";
+    const int machine_fd = OpenMachineConnection(connect_str);
     if (machine_fd < 0) {
-        fprintf(stderr, "Failed to connect to machine\n");
+        fprintf(stderr, "Failed to connect to machine %s\n", connect_str);
         return 1;
     }
+
     DiscardPendingInput(machine_fd, 3000);
 
     fprintf(stderr, "\n---- Start sending file '%s' -----\n", filename);
