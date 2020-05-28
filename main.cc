@@ -25,17 +25,26 @@ static bool reliable_write(int fd, const char *buffer, int len) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s <gcode-file>\n", argv[0]);
+    if (argc < 2) {
+        fprintf(stderr, "usage: %s <gcode-file> [connection string]\n", argv[0]);
+        fprintf(stderr, "Example: %s file.gcode /dev/ttyACM0,b115200\n", argv[0]);
+
         return 1;
     }
     const char *filename = argv[1];
+
+    std::string connection_string="/dev/ttyACM0,b115200";
+
+    if(argc >= 3) {
+      connection_string=std::string(argv[2]);
+    }
+
     std::fstream input(filename);
 
     // TODO(hzeller): make configurable via a flag.
-    const int machine_fd = OpenMachineConnection("/dev/ttyACM0,b115200");
+    const int machine_fd = OpenMachineConnection(connection_string.c_str());
     if (machine_fd < 0) {
-        fprintf(stderr, "Failed to connect to machine\n");
+        fprintf(stderr, "Failed to connect to: %s\n", connection_string.c_str());
         return 1;
     }
     DiscardPendingInput(machine_fd, 3000);
