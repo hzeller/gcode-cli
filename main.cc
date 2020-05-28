@@ -9,10 +9,6 @@
 #include <iostream>
 #include <string>
 
-using std::cerr;
-using std::cout;
-using std::endl;
-
 #include "machine-connection.h"
 
 #define ALERT_ON "\033[41m\033[30m"
@@ -30,31 +26,32 @@ static bool reliable_write(int fd, const char *buffer, int len) {
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        cerr<<"Usage: "<<argv[0]<<" <file> [connection string]"<<endl;
-        cerr<<endl;
-        cerr<<"If connection string is not specified, defaults to /dev/ttyACM0,b115200"<<endl;
+        fprintf(stderr, "usage: %s <gcode-file> [connection string]\n", argv[0]);
+        fprintf(stderr, "Example: %s file.gcode /dev/ttyACM0,b115200\n", argv[0]);
+
         return 1;
     }
     const char *filename = argv[1];
 
-    std::string connection_string="/dev/ttyACM0,b115200";
-
-    if(argc >= 3) {
-      connection_string=std::string(argv[2]);
-    }
-
     std::fstream input(filename);
 
-    const int machine_fd = OpenMachineConnection(connection_string.c_str());
+    int machine_fd=-1;
+
+    if (argc >= 3) {
+        machine_fd = OpenMachineConnection(argv[2]);
+    }
+    else {
+        //use default connection string if not present
+        machine_fd=OpenMachineConnection("/dev/ttyACM0,b115200");
+    }
+
     if (machine_fd < 0) {
-        cerr<<"Failed to open connection to: "<<connection_string<<endl;
+        fprintf(stderr, "Failed to connect to machine\n");
         return 1;
     }
     DiscardPendingInput(machine_fd, 3000);
 
-    cerr<<endl;
-    cerr<<"----- Start sending file '"<<filename<<"' -----"<<endl;
-
+    fprintf(stderr, "\n---- Start sending file '%s' -----\n", filename);
     std::string line;
     int line_no = 0;
     while (!input.eof()) {
@@ -63,19 +60,22 @@ int main(int argc, char *argv[]) {
         while (!line.empty() && isspace(line[line.size()-1])) {
             line.resize(line.length()-1);
         }
-        cerr<<line_no<<"| "<<line<<" ";
+        fprintf(stderr, "%4d| %s ", line_no, line.c_str());
+        fflush(stderr);
         line.append("\n");  // GRBL wants only newline, not CRLF
         if (!reliable_write(machine_fd, line.data(), line.length())) {
-            cerr<<"Couldn't write"<<endl;
+            fprintf(stderr, "Couldn't write!\n");
             return 1;
         }
 
         // The OK 'flow control' used by all these serial machine controls
         if (!WaitForOkAck(machine_fd)) {
-            cerr<<ALERT_ON<<"[ Didn't get OK. Continue: ENTER; stop: CTRL-C ]"<<ALERT_OFF<<endl;
+            fprintf(stderr,
+                    ALERT_ON "[ Didn't get OK. Continue: ENTER; stop: CTRL-C ]"
+                    ALERT_OFF "\n");
             getchar();
         } else {
-            cerr<<" << OK"<<endl;
+            fprintf(stderr, "<< OK\n");
         }
     }
     close(machine_fd);
