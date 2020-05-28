@@ -9,6 +9,10 @@
 #include <iostream>
 #include <string>
 
+using std::cerr;
+using std::cout;
+using std::endl;
+
 #include "machine-connection.h"
 
 #define ALERT_ON "\033[41m\033[30m"
@@ -26,9 +30,9 @@ static bool reliable_write(int fd, const char *buffer, int len) {
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        fprintf(stderr, "usage: %s <gcode-file> [connection string]\n", argv[0]);
-        fprintf(stderr, "Example: %s file.gcode /dev/ttyACM0,b115200\n", argv[0]);
-
+        cerr<<"Usage: "<<argv[0]<<" <file> [connection string]"<<endl;
+        cerr<<endl;
+        cerr<<"If connection string is not specified, defaults to /dev/ttyACM0,b115200"<<endl;
         return 1;
     }
     const char *filename = argv[1];
@@ -43,12 +47,14 @@ int main(int argc, char *argv[]) {
 
     const int machine_fd = OpenMachineConnection(connection_string.c_str());
     if (machine_fd < 0) {
-        fprintf(stderr, "Failed to connect to: %s\n", connection_string.c_str());
+        cerr<<"Failed to open connection to: "<<connection_string<<endl;
         return 1;
     }
     DiscardPendingInput(machine_fd, 3000);
 
-    fprintf(stderr, "\n---- Start sending file '%s' -----\n", filename);
+    cerr<<endl;
+    cerr<<"----- Start sending file '"<<filename<<"' -----"<<endl;
+
     std::string line;
     int line_no = 0;
     while (!input.eof()) {
@@ -57,22 +63,19 @@ int main(int argc, char *argv[]) {
         while (!line.empty() && isspace(line[line.size()-1])) {
             line.resize(line.length()-1);
         }
-        fprintf(stderr, "%4d| %s ", line_no, line.c_str());
-        fflush(stderr);
+        cerr<<line_no<<"| "<<line<<" ";
         line.append("\n");  // GRBL wants only newline, not CRLF
         if (!reliable_write(machine_fd, line.data(), line.length())) {
-            fprintf(stderr, "Couldn't write!\n");
+            cerr<<"Couldn't write"<<endl;
             return 1;
         }
 
         // The OK 'flow control' used by all these serial machine controls
         if (!WaitForOkAck(machine_fd)) {
-            fprintf(stderr,
-                    ALERT_ON "[ Didn't get OK. Continue: ENTER; stop: CTRL-C ]"
-                    ALERT_OFF "\n");
+            cerr<<ALERT_ON<<"[ Didn't get OK. Continue: ENTER; stop: CTRL-C ]"<<ALERT_OFF<<endl;
             getchar();
         } else {
-            fprintf(stderr, "<< OK\n");
+            cerr<<" << OK"<<endl;
         }
     }
     close(machine_fd);
