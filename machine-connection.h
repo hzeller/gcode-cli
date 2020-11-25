@@ -22,7 +22,7 @@ int DiscardPendingInput(int fd, int timeout_ms);
 
 // For for "ok" string that 3D printers use as 'flow control'. It is important
 // to wait for this ack after each command sent to he printer otherwise
-// commands might get lost.
+// commands might get lost. Returns true on "ok", false on "error".
 bool WaitForOkAck(int fd);
 
 #endif // MACHINE_CONN_H

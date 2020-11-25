@@ -7,20 +7,33 @@ It sends gcode line-by-line, removing CRLF line-endings and just sends LF
 the next line; provides a simple continue/stop user interaction when it
 encounters an `error`-response.
 
+The tool remoes `;`-based end-of-line comments and empty lines
+
 No claim to be complete, just useful for my local Marlin-based 3D printers and
-Grbl-based CNC.
+Grbl-based CNC as well as various machines I run with [BeagleG].
 
 ```
 usage:
 ./gcode-cli <gcode-file> [connection-string]
 
-Connection string is comprised of device-name and an optional
-bit-rate directly separated with a comma.
-These are valid connection strings; notice the 'b' prefix for the bit-rate:
+Connection string is either a path to a tty device or host:port
+ * Serial connection
+   A path to the device name with an optional bit-rate
+   separated with a comma.
+   Examples of valid connection strings:
         /dev/ttyACM0
         /dev/ttyACM0,b115200
-Available bit-rates are one of [9600, 19200, 38400, 57600, 115200, 230400, 460800]
+  notice the 'b' prefix for the bit-rate.
+  Available bit-rates are one of [b9600, b19200, b38400, b57600,  b115200, b230400, b460800]
 
-Example:
+ * TCP connection
+   For devices that receive gcode via tcp (e.g. http://beagleg.org/)
+   you specify the connection string as host:port. Example:
+        localhost:4444
+
+Examples:
 ./gcode-cli file.gcode /dev/ttyACM0,b115200
+./gcode-cli file.gcode localhost:4444
 ```
+
+[BeagleG]: http://beagleg.org/

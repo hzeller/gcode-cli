@@ -4,11 +4,14 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <string.h>
 #include <string>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/uio.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -107,19 +110,63 @@ static int ReadLine(int fd, char *result, int len, bool do_echo) {
  *
  */
 
-int OpenMachineConnection(const char *descriptor) {
-    if (descriptor == nullptr) return -1;
+int OpenTCPSocket(const char *host) {
+    char *host_copy = NULL;
+    const char *port = "8888";
+    const char *colon_pos;
+    if ((colon_pos = strchr(host, ':')) != NULL) {
+        port = colon_pos + 1;
+        host_copy = strdup(host);
+        host_copy[colon_pos - host] = '\0';
+        host = host_copy;
+    }
+    struct addrinfo addr_hints = {};
+    addr_hints.ai_family = AF_INET;
+    addr_hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo *addr_result = NULL;
+    int rc;
+    if ((rc = getaddrinfo(host, port, &addr_hints, &addr_result)) != 0) {
+        fprintf(stderr, "Resolving '%s' (port %s): %s\n", host, port,
+                gai_strerror(rc));
+        free(host_copy);
+        return -1;
+    }
+    free(host_copy);
+    if (addr_result == NULL)
+        return -1;
+    int fd = socket(addr_result->ai_family,
+                    addr_result->ai_socktype,
+                    addr_result->ai_protocol);
+    if (fd >= 0 &&
+        connect(fd, addr_result->ai_addr, addr_result->ai_addrlen) < 0) {
+        perror("TCP connect()");
+        close(fd);
+        fd = -1;
+    }
+
+    freeaddrinfo(addr_result);
+    return fd;
+}
+
+static int OpenTTY(const char *descriptor) {
     const char *comma = strchrnul(descriptor, ',');
     const std::string path(descriptor, comma);
     int fd = open(path.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
     if (fd < 0) {
-        fprintf(stderr, "Opening %s: %s\n", path.c_str(), strerror(errno));
         return -1;
     }
     if (!SetTTYParams(fd, *comma ? comma+1 : "")) {
         return -1;
     }
     return fd;
+}
+
+int OpenMachineConnection(const char *descriptor) {
+    if (descriptor == nullptr) return -1;
+    int fd = OpenTTY(descriptor);
+    if (fd >= 0) return fd;
+    return OpenTCPSocket(descriptor);
 }
 
 int DiscardPendingInput(int fd, int timeout_ms) {

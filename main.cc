@@ -27,16 +27,28 @@ static bool reliable_write(int fd, const char *buffer, int len) {
 static int usage(const char *progname) {
     fprintf(stderr, "usage:\n"
             "%s <gcode-file> [connection-string]\n"
-            "\nConnection string is comprised of device-name and an optional\n"
-            "bit-rate directly separated with a comma.\nThese are valid "
-            "connection strings; notice the 'b' prefix for the bit-rate:\n"
-            "\t/dev/ttyACM0\n"
-            "\t/dev/ttyACM0,b115200\n"
-            "Available bit-rates are one of [9600, 19200, 38400, 57600, "
-            "115200, 230400, 460800]\n", progname);
-
-    fprintf(stderr, "\nExample:\n%s file.gcode /dev/ttyACM0,b115200\n",
+            "\nConnection string is either a path to a tty device or "
+            "host:port\n"
+            " * Serial connection\n"
+            "   A path to the device name with an optional bit-rate\n"
+            "   separated with a comma.\n"
+            "   Examples of valid connection strings:\n"
+            "   \t/dev/ttyACM0\n"
+            "   \t/dev/ttyACM0,b115200\n"
+            "  notice the 'b' prefix for the bit-rate.\n"
+            "  Available bit-rates are one of [b9600, b19200, b38400, b57600, "
+            "b115200, b230400, b460800]\n\n"
+            " * TCP connection\n"
+            "   For devices that receive gcode via tcp "
+            "(e.g. http://beagleg.org/)\n"
+            "   you specify the connection string as host:port. Example:\n"
+            "   \tlocalhost:4444\n",
             progname);
+
+    fprintf(stderr, "\nExamples:\n"
+            "%s file.gcode /dev/ttyACM0,b115200\n"
+            "%s file.gcode localhost:4444\n",
+            progname, progname);
     return 1;
 }
 
@@ -59,6 +71,7 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "\n---- Start sending file '%s' -----\n", filename);
     std::string line;
     int line_no = 0;
+    int lines_sent = 0;
     while (!input.eof()) {
         line_no++;
         getline(input, line);
@@ -87,6 +100,8 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
+        lines_sent++;
+
         // The OK 'flow control' used by all these serial machine controls
         if (!WaitForOkAck(machine_fd)) {
             fprintf(stderr,
@@ -98,4 +113,5 @@ int main(int argc, char *argv[]) {
         }
     }
     close(machine_fd);
+    fprintf(stderr, "Sent total of %d non-empty lines\n", lines_sent);
 }
