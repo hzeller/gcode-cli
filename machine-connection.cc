@@ -67,7 +67,7 @@ static bool SetTTYParams(int fd, const char *params) {
         return false;
     }
     return true;
- }
+}
 
 // Wait for input to become ready for read or timeout reached.
 // If the file-descriptor becomes readable, returns number of milli-seconds
