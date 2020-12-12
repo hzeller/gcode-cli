@@ -7,7 +7,7 @@ It sends gcode line-by-line, removing CRLF line-endings and just sends LF
 the next line; provides a simple continue/stop user interaction when it
 encounters an `error`-response.
 
-The tool remoes `;`-based end-of-line comments and empty lines
+The tool removes `;`-based end-of-line comments and empty lines.
 
 No claim to be complete, just useful for my local Marlin-based 3D printers and
 Grbl-based CNC as well as various machines I run with [BeagleG].

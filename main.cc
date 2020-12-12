@@ -76,21 +76,21 @@ int main(int argc, char *argv[]) {
         line_no++;
         getline(input, line);
 
-	// Strip any comments that start with ; to the end of the line
-	const size_t comment_start = line.find_first_of(';');
-	if (comment_start != std::string::npos) {
+        // Strip any comments that start with ; to the end of the line
+        const size_t comment_start = line.find_first_of(';');
+        if (comment_start != std::string::npos) {
             line.resize(comment_start);
-	}
+        }
 
-	// Now, strip away any trailing spaces
+        // Now, strip away any trailing spaces
         while (!line.empty() && isspace(line[line.size()-1])) {
             line.resize(line.length()-1);
         }
 
-	// If the line is empty, then skip it
-	if (line.empty()) {
+        // If the line is empty, then skip it
+        if (line.empty()) {
             continue;
-	}
+        }
 
         fprintf(stderr, "%4d| %s ", line_no, line.c_str());
         fflush(stderr);
