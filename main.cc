@@ -66,7 +66,9 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    DiscardPendingInput(machine_fd, 3000);
+    // If there is some initial chatter, ignore it, until there is 150ms
+    // silence on the wire (TODO: make configurable with command line option)
+    DiscardPendingInput(machine_fd, 150);
 
     fprintf(stderr, "\n---- Start sending file '%s' -----\n", filename);
     std::string line;
