@@ -15,6 +15,7 @@ Grbl-based CNC as well as various machines I run with [BeagleG].
 ```
 usage:
 ./gcode-cli <gcode-file> [connection-string]
+<gcode-file> is either a filename or '-' for stdin
 
 Connection string is either a path to a tty device or host:port
  * Serial connection
@@ -24,7 +25,7 @@ Connection string is either a path to a tty device or host:port
         /dev/ttyACM0
         /dev/ttyACM0,b115200
   notice the 'b' prefix for the bit-rate.
-  Available bit-rates are one of [b9600, b19200, b38400, b57600,  b115200, b230400, b460800]
+  Available bit-rates are one of [b9600, b19200, b38400, b57600, b115200, b230400, b460800]
 
  * TCP connection
    For devices that receive gcode via tcp (e.g. http://beagleg.org/)
