@@ -93,7 +93,7 @@ static int AwaitReadReady(int fd, int timeout_millis) {
 static int ReadLine(int fd, char *result, int len, bool do_echo) {
     int bytes_read = 0;
     char c = 0;
-    while (c != '\n' && c != '\r' && bytes_read < len) {
+    while (c != '\n' && c != '\r' && bytes_read < len-1) {
         if (read(fd, &c, 1) < 0)
             return -1;
         ++bytes_read;

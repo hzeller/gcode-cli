@@ -1,7 +1,7 @@
 # Base directory for installation.
 PREFIX?=/usr/local
 
-CXXFLAGS=-W -Wall -Wextra -O2
+CXXFLAGS=-W -Wall -Wextra -O2 -std=c++17
 
 gcode-cli: main.o machine-connection.o
 	$(CXX) -o $@ $^
