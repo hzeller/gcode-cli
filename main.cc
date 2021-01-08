@@ -27,9 +27,16 @@ static bool reliable_writeln(int fd, const char *buffer, int len) {
 
 static int usage(const char *progname) {
     fprintf(stderr, "usage:\n"
-            "%s <gcode-file> [connection-string]\n"
+            "%s [options] <gcode-file> [<connection-string>]\n"
+            "Options:\n"
+            "\t-n : Dry-run. Don't actually send anything.\n"
+            "\t-q : Quiet. Don't output diagnostic messages or "
+            "echo communication.\n"
+            "\t-F : Disable waiting for 'ok'-acknowledge.\n"
+            "\n"
             "<gcode-file> is either a filename or '-' for stdin\n"
-            "\nConnection string is either a path to a tty device or "
+            "\n"
+            "\n<connection-string> is either a path to a tty device or "
             "host:port\n"
             " * Serial connection\n"
             "   A path to the device name with an optional bit-rate\n"
@@ -88,22 +95,44 @@ static void handle_error_or_exit() {
 }
 
 int main(int argc, char *argv[]) {
-    // TODO: these configuration choices should be made command line options.
-    int initial_squash_chatter_ms = 300;  // Time for initial chatter to finish
+    // command line options.
     bool use_ok_flow_control = true;   // if false, just blast out.
     bool is_dry_run = false;           // if true, don't actually send anything
-    bool print_communication = true;   // if true, print line+block to stdout
     bool quiet = false;                // Don't print addtional diagnostics
 
-    if (argc < 2)
+    // No cli options yet.
+    int initial_squash_chatter_ms = 300;  // Time for initial chatter to finish
+    bool print_communication = true;   // if true, print line+block to stdout
+
+    int opt;
+    while ((opt = getopt(argc, argv, "nqF")) != -1) {
+        switch (opt) {
+        case 'n':
+            is_dry_run = true;
+            break;
+        case 'q':
+            quiet = true;
+            print_communication = false;  // Make separate option ?
+            break;
+        case 'F':
+            use_ok_flow_control = false;
+            break;
+        default:
+            return usage(argv[0]);
+        }
+    }
+
+    if (optind >= argc)
         return usage(argv[0]);
 
     // Input
-    const char *const filename = argv[1];
+    const char *const filename = argv[optind];
     FILE *input = filename == std::string("-") ? stdin : fopen(filename, "r");
 
     // Output
-    const char *connect_str = (argc >= 3) ? argv[2] : "/dev/ttyACM0,b115200";
+    const char *const connect_str = (optind < argc-1)
+        ? argv[optind+1]
+        : "/dev/ttyACM0,b115200";
     is_dry_run |= (strcmp(connect_str, "/dev/null") == 0);
 
     int machine_fd = -1;

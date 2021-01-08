@@ -14,10 +14,16 @@ Grbl-based CNC as well as various machines I run with [BeagleG].
 
 ```
 usage:
-./gcode-cli <gcode-file> [connection-string]
+gcode-cli [options] <gcode-file> [<connection-string>]
+Options:
+        -n : Dry-run. Don't actually send anything.
+        -q : Quiet. Don't output diagnostic messages or echo communication.
+        -F : Disable waiting for 'ok'-acknowledge.
+
 <gcode-file> is either a filename or '-' for stdin
 
-Connection string is either a path to a tty device or host:port
+
+<connection-string> is either a path to a tty device or host:port
  * Serial connection
    A path to the device name with an optional bit-rate
    separated with a comma.
@@ -33,8 +39,8 @@ Connection string is either a path to a tty device or host:port
         localhost:4444
 
 Examples:
-./gcode-cli file.gcode /dev/ttyACM0,b115200
-./gcode-cli file.gcode localhost:4444
+gcode-cli file.gcode /dev/ttyACM0,b115200
+gcode-cli file.gcode localhost:4444
 ```
 
 [BeagleG]: http://beagleg.org/
