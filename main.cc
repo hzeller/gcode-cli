@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <unistd.h>
+#include <string.h>
 
 #include <string_view>
 #include <string>
@@ -70,25 +71,69 @@ static bool read_line(FILE *in, std::string_view *out) {
     return false;
 }
 
+// Very crude error handling. If this is an interactive session we can ask
+// the user to decide.
+static void handle_error_or_exit() {
+    if (isatty(STDIN_FILENO)) {  // interactive.
+        fprintf(stderr,
+                ALERT_ON "[ Didn't get OK. Continue: ENTER; stop: CTRL-C ]"
+                ALERT_OFF "\n");
+        getchar();
+    } else {
+        fprintf(stderr, ALERT_ON "[ Received error. Non-interactive session "
+                "does not allow for user feedback. Bailing out.]"
+                ALERT_OFF "\n");
+        exit(1);
+    }
+}
+
 int main(int argc, char *argv[]) {
+    // TODO: these configuration choices should be made command line options.
+    int initial_squash_chatter_ms = 300;  // Time for initial chatter to finish
+    bool use_ok_flow_control = true;   // if false, just blast out.
+    bool is_dry_run = false;           // if true, don't actually send anything
+    bool print_communication = true;   // if true, print line+block to stdout
+    bool quiet = false;                // Don't print addtional diagnostics
+
     if (argc < 2)
         return usage(argv[0]);
 
+    // Input
     const char *const filename = argv[1];
     FILE *input = filename == std::string("-") ? stdin : fopen(filename, "r");
 
+    // Output
     const char *connect_str = (argc >= 3) ? argv[2] : "/dev/ttyACM0,b115200";
-    const int machine_fd = OpenMachineConnection(connect_str);
-    if (machine_fd < 0) {
-        fprintf(stderr, "Failed to connect to machine %s\n", connect_str);
-        return 1;
+    is_dry_run |= (strcmp(connect_str, "/dev/null") == 0);
+
+    int machine_fd = -1;
+    if (!is_dry_run) {
+        machine_fd = OpenMachineConnection(connect_str);
+        if (machine_fd < 0) {
+            fprintf(stderr, "Failed to connect to machine %s\n", connect_str);
+            return 1;
+        }
     }
 
-    // If there is some initial chatter, ignore it, until there is 150ms
-    // silence on the wire (TODO: make configurable with command line option)
-    DiscardPendingInput(machine_fd, 150);
+    // In a dry-run, we also will not read anything.
+    use_ok_flow_control &= !is_dry_run;
 
-    fprintf(stderr, "\n---- Start sending file '%s' -----\n", filename);
+    // If there is some initial chatter, ignore it, until there is some time
+    // silence on the wire. That way, we only get OK responses to our requests.
+    if (use_ok_flow_control) {
+        DiscardPendingInput(machine_fd, initial_squash_chatter_ms,
+                            print_communication);
+    }
+
+    if (!quiet) {
+        fprintf(stderr, "\n---- Sending file '%s' to '%s'%s -----\n", filename,
+                connect_str, is_dry_run ? " (Dry-run)" : "");
+    }
+
+    // Even if we don't usually print the communication, unless we're not
+    // quiet, we'll print error messages coming back from the machine.
+    const bool print_errors = print_communication || !quiet;
+
     std::string_view line;
     int line_no = 0;
     int lines_sent = 0;
@@ -106,13 +151,15 @@ int main(int argc, char *argv[]) {
             line.remove_suffix(1);
         }
 
-        // If the line is empty, then skip it
+        // Nothing left to send: skip.
         if (line.empty()) {
             continue;
         }
 
-        fprintf(stderr, "%4d| %.*s ", line_no, (int)line.size(), line.data());
-        fflush(stderr);
+        if (print_communication) {
+            printf("%4d| %.*s ", line_no, (int)line.size(), line.data());
+            fflush(stdout);
+        }
 
         // We now have a line stripped of any whitespace or newline character
         // at the end.
@@ -120,7 +167,8 @@ int main(int argc, char *argv[]) {
         // for instance would consider sending \r\n as two lines (and send two
         // 'ok' in response), so this makes sure we send one block for which
         // we expect exactly one 'ok' below.
-        if (!reliable_writeln(machine_fd, line.data(), line.size())) {
+        if (!is_dry_run &&
+            !reliable_writeln(machine_fd, line.data(), line.size())) {
             fprintf(stderr, "Couldn't write!\n");
             return 1;
         }
@@ -128,15 +176,25 @@ int main(int argc, char *argv[]) {
         lines_sent++;
 
         // The OK 'flow control' used by all these serial machine controls
-        if (!WaitForOkAck(machine_fd)) {
-            fprintf(stderr,
-                    ALERT_ON "[ Didn't get OK. Continue: ENTER; stop: CTRL-C ]"
-                    ALERT_OFF "\n");
-            getchar();
+        if (use_ok_flow_control && !WaitForOkAck(machine_fd, print_errors)) {
+            handle_error_or_exit();
         } else {
-            fprintf(stderr, "<< OK\n");
+            if (print_communication)
+                printf(use_ok_flow_control ? "<< OK\n" : "\n");
         }
     }
+
+    // We don't really expect anything coming afterwards from the machine, but
+    // if there is an imbalance of sent commands vs. acknowledge flow control
+    // tokens, we'd see it now.
+    if (!is_dry_run) {
+        if (!quiet)
+            fprintf(stderr, "Discarding remaining machine responses.\n");
+        DiscardPendingInput(machine_fd, initial_squash_chatter_ms,
+                            print_communication);
+    }
+
     close(machine_fd);
-    fprintf(stderr, "Sent total of %d non-empty lines\n", lines_sent);
+    if (!quiet)
+        fprintf(stderr, "Sent total of %d non-empty lines.\n", lines_sent);
 }

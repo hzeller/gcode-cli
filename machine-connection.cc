@@ -127,8 +127,11 @@ int OpenTCPSocket(const char *host) {
     struct addrinfo *addr_result = NULL;
     int rc;
     if ((rc = getaddrinfo(host, port, &addr_hints, &addr_result)) != 0) {
-        fprintf(stderr, "Resolving '%s' (port %s): %s\n", host, port,
-                gai_strerror(rc));
+        // We're in OpenTCPSocket(), because opening as a tty failed before,
+        // so make reference of that in this error message.
+        fprintf(stderr, "Not a tty and "
+                "can't resolve as TCP endpoint '%s' (port %s): %s\n",
+                host, port, gai_strerror(rc));
         free(host_copy);
         return -1;
     }
@@ -169,7 +172,7 @@ int OpenMachineConnection(const char *descriptor) {
     return OpenTCPSocket(descriptor);
 }
 
-int DiscardPendingInput(int fd, int timeout_ms) {
+int DiscardPendingInput(int fd, int timeout_ms, bool echo_received_data) {
     if (fd < 0) return 0;
     int total_bytes = 0;
     char buf[128];
@@ -180,13 +183,15 @@ int DiscardPendingInput(int fd, int timeout_ms) {
             return -1;
         }
         total_bytes += r;
-        if (r > 0) write(STDERR_FILENO, buf, r);  // echo back.
+        if (r > 0 && echo_received_data) {
+            write(STDERR_FILENO, buf, r);
+        }
     }
     return total_bytes;
 }
 
 // 'ok' comes on a single line, maybe followed by something.
-bool WaitForOkAck(int fd) {
+bool WaitForOkAck(int fd, bool print_errors) {
     char buffer[512] = {};
     int lines_printed = 0;
     for (;;) {
@@ -204,15 +209,18 @@ bool WaitForOkAck(int fd) {
         }
 
         // Got some form of other message. Remove newlines and print.
-        buffer[got_chars-1] = '\0';
-        while (got_chars && isspace(buffer[got_chars-1])) {
+        if (print_errors) {
             buffer[got_chars-1] = '\0';
-            got_chars--;
+            while (got_chars && isspace(buffer[got_chars-1])) {
+                buffer[got_chars-1] = '\0';
+                got_chars--;
+            }
+            if (lines_printed == 0) fprintf(stderr, "\n");
+            // If we didn't get 'ok', it might be an important error message.
+            // Print.
+            fprintf(stderr, "\033[7m%s\033[0m\n", buffer);
+            ++lines_printed;
         }
-        if (lines_printed == 0) fprintf(stderr, "\n");
-        // If we didn't get 'ok', it might be an important error message. Print.
-        fprintf(stderr, "\033[7m%s\033[0m\n", buffer);
-        ++lines_printed;
 
         // If the message indeed starts with 'error', we can return. Otherwise
         // we keep sending stuff.
