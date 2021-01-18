@@ -216,7 +216,9 @@ int main(int argc, char *argv[]) {
 
         // The OK 'flow control' used by all these serial machine controls
         if (use_ok_flow_control
-            && !WaitForOkAck(machine_fd, !suppress_unusual_response)) {
+            && !WaitForOkAck(machine_fd,
+                             !suppress_unusual_response,  // print errors
+                             print_communication)) {   // seprate with newline
             handle_error_or_exit();
         } else {
             if (print_communication)

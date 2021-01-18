@@ -191,7 +191,7 @@ int DiscardPendingInput(int fd, int timeout_ms, bool echo_received_data) {
 }
 
 // 'ok' comes on a single line, maybe followed by something.
-bool WaitForOkAck(int fd, bool print_errors) {
+bool WaitForOkAck(int fd, bool print_errors, bool errors_on_new_line) {
     char buffer[512] = {};
     int lines_printed = 0;
     for (;;) {
@@ -208,16 +208,17 @@ bool WaitForOkAck(int fd, bool print_errors) {
             return true;
         }
 
-        // Got some form of other message. Remove newlines and print.
+        // If we didn't get 'ok', it might be an important error message.
+        // Remove trailing newlines and print.
         if (print_errors) {
             buffer[got_chars-1] = '\0';
             while (got_chars && isspace(buffer[got_chars-1])) {
                 buffer[got_chars-1] = '\0';
                 got_chars--;
             }
-            if (lines_printed == 0) fprintf(stderr, "\n");
-            // If we didn't get 'ok', it might be an important error message.
-            // Print.
+            if (errors_on_new_line && lines_printed == 0) {
+                fprintf(stderr, "\n");  // separate non-handshake message
+            }
             fprintf(stderr, "\033[7m%s\033[0m\n", buffer);
             ++lines_printed;
         }
