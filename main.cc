@@ -2,9 +2,12 @@
  * (c) h.zeller@acm.org. Free Software. GNU Public License v3.0 and above
  */
 
+#include <inttypes.h>
+#include <stdint.h>
 #include <stdio.h>
-#include <unistd.h>
 #include <string.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 #include <string_view>
 #include <string>
@@ -59,6 +62,12 @@ static int usage(const char *progname) {
             "%s file.gcode localhost:4444\n",
             progname, progname);
     return 1;
+}
+
+static int64_t get_time_ms() {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return (int64_t) tv.tv_sec * 1000 + (int64_t) tv.tv_usec / 1000;
 }
 
 // The std::istream does handle EOF flag poorly with stdin, e.g. an
@@ -166,6 +175,7 @@ int main(int argc, char *argv[]) {
     std::string_view line;
     int line_no = 0;
     int lines_sent = 0;
+    const int64_t start_time = get_time_ms();
     while (read_line(input, &line)) {
         line_no++;
 
@@ -224,6 +234,9 @@ int main(int argc, char *argv[]) {
     }
 
     close(machine_fd);
+    const int64_t duration = get_time_ms() - start_time;
     if (!quiet)
-        fprintf(stderr, "Sent total of %d non-empty lines.\n", lines_sent);
+        fprintf(stderr, "Sent total of %d non-empty lines in "
+                "%" PRId64 ".%03" PRId64 "s\n",
+                lines_sent, duration / 1000, duration % 1000);
 }
