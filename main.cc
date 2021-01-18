@@ -234,9 +234,10 @@ int main(int argc, char *argv[]) {
     }
 
     close(machine_fd);
-    const int64_t duration = get_time_ms() - start_time;
-    if (!quiet)
+    if (!quiet) {
+        const int64_t duration = get_time_ms() - start_time;
         fprintf(stderr, "Sent total of %d non-empty lines in "
                 "%" PRId64 ".%03" PRId64 "s\n",
                 lines_sent, duration / 1000, duration % 1000);
+    }
 }
