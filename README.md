@@ -17,7 +17,8 @@ usage:
 gcode-cli [options] <gcode-file> [<connection-string>]
 Options:
         -n : Dry-run. Don't actually send anything.
-        -q : Quiet. Don't output diagnostic messages or echo communication.
+        -q : Quiet. Don't output diagnostic messages or echo regular communication.
+             Apply -q twice to even suppress non-handshake communication.
         -F : Disable waiting for 'ok'-acknowledge.
 
 <gcode-file> is either a filename or '-' for stdin

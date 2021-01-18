@@ -34,7 +34,9 @@ static int usage(const char *progname) {
             "Options:\n"
             "\t-n : Dry-run. Don't actually send anything.\n"
             "\t-q : Quiet. Don't output diagnostic messages or "
-            "echo communication.\n"
+            "echo regular communication.\n"
+            "\t     Apply -q twice to even suppress "
+            "non-handshake communication.\n"
             "\t-F : Disable waiting for 'ok'-acknowledge.\n"
             "\n"
             "<gcode-file> is either a filename or '-' for stdin\n"
@@ -108,6 +110,7 @@ int main(int argc, char *argv[]) {
     bool use_ok_flow_control = true;   // if false, just blast out.
     bool is_dry_run = false;           // if true, don't actually send anything
     bool quiet = false;                // Don't print addtional diagnostics
+    bool suppress_unusual_response = false;  // Don't print unusual responses
 
     // No cli options yet.
     int initial_squash_chatter_ms = 300;  // Time for initial chatter to finish
@@ -120,6 +123,7 @@ int main(int argc, char *argv[]) {
             is_dry_run = true;
             break;
         case 'q':
+            suppress_unusual_response = quiet;  // if -q multiple times
             quiet = true;
             print_communication = false;  // Make separate option ?
             break;
@@ -168,10 +172,6 @@ int main(int argc, char *argv[]) {
                 connect_str, is_dry_run ? " (Dry-run)" : "");
     }
 
-    // Even if we don't usually print the communication, unless we're not
-    // quiet, we'll print error messages coming back from the machine.
-    const bool print_errors = print_communication || !quiet;
-
     std::string_view line;
     int line_no = 0;
     int lines_sent = 0;
@@ -215,7 +215,8 @@ int main(int argc, char *argv[]) {
         lines_sent++;
 
         // The OK 'flow control' used by all these serial machine controls
-        if (use_ok_flow_control && !WaitForOkAck(machine_fd, print_errors)) {
+        if (use_ok_flow_control
+            && !WaitForOkAck(machine_fd, !suppress_unusual_response)) {
             handle_error_or_exit();
         } else {
             if (print_communication)
@@ -230,7 +231,7 @@ int main(int argc, char *argv[]) {
         if (!quiet)
             fprintf(stderr, "Discarding remaining machine responses.\n");
         DiscardPendingInput(machine_fd, initial_squash_chatter_ms,
-                            print_communication);
+                            !suppress_unusual_response);
     }
 
     close(machine_fd);
