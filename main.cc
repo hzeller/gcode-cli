@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
     bool use_ok_flow_control = true;   // if false, just blast out.
     bool is_dry_run = false;           // if true, don't actually send anything
     bool quiet = false;                // Don't print addtional diagnostics
-    bool suppress_unusual_response = false;  // Don't print unusual responses
+    bool print_unusual_messages = true;  // messages not expected from handshake
 
     // No cli options yet.
     int initial_squash_chatter_ms = 300;  // Time for initial chatter to finish
@@ -123,7 +123,7 @@ int main(int argc, char *argv[]) {
             is_dry_run = true;
             break;
         case 'q':
-            suppress_unusual_response = quiet;  // if -q multiple times
+            print_unusual_messages = !quiet;  // squashed if -q multiple times
             quiet = true;
             print_communication = false;  // Make separate option ?
             break;
@@ -217,7 +217,7 @@ int main(int argc, char *argv[]) {
         // The OK 'flow control' used by all these serial machine controls
         if (use_ok_flow_control
             && !WaitForOkAck(machine_fd,
-                             !suppress_unusual_response,  // print errors
+                             print_unusual_messages,  // print errors
                              print_communication)) {   // seprate with newline
             handle_error_or_exit();
         } else {
@@ -233,7 +233,7 @@ int main(int argc, char *argv[]) {
         if (!quiet)
             fprintf(stderr, "Discarding remaining machine responses.\n");
         DiscardPendingInput(machine_fd, initial_squash_chatter_ms,
-                            !suppress_unusual_response);
+                            print_unusual_messages);
     }
 
     close(machine_fd);
