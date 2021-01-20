@@ -13,13 +13,18 @@ No claim to be complete, just useful for my local Marlin-based 3D printers and
 Grbl-based CNC as well as various machines I run with [BeagleG].
 
 ```
-usage:
+Usage:
 gcode-cli [options] <gcode-file> [<connection-string>]
 Options:
-        -n : Dry-run. Don't actually send anything.
+        -b <count> : Number of blocks sent out buffered before
+             checking the returning flow-control 'ok'. Dangerous if
+             machine has little memory. Default: 1
+        -c : Include semicolon end-of-line comments (they are stripped
+             by default)
+        -n : Dry-run. Read GCode but don't actually send anything.
         -q : Quiet. Don't output diagnostic messages or echo regular communication.
              Apply -q twice to even suppress non-handshake communication.
-        -F : Disable waiting for 'ok'-acknowledge.
+        -F : Disable waiting for 'ok'-acknowledge flow-control.
 
 <gcode-file> is either a filename or '-' for stdin
 

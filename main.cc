@@ -2,42 +2,76 @@
  * (c) h.zeller@acm.org. Free Software. GNU Public License v3.0 and above
  */
 
+#include <fcntl.h>
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/types.h>
 #include <unistd.h>
 
-#include <string_view>
+#include <algorithm>
 #include <string>
+#include <string_view>
+#include <vector>
 
+#include "gcode-line-reader.h"
 #include "machine-connection.h"
 
 #define ALERT_ON "\033[41m\033[30m"
 #define ALERT_OFF "\033[0m"
 
-// Write buffer to fd, append newline.
-static bool reliable_writeln(int fd, const char *buffer, int len) {
+typedef std::vector<std::string_view>::iterator SnippetIterator;
+
+// Write buffer to fd.
+static bool reliable_write(int fd, const char *buffer, int len) {
     while (len) {
         int w = write(fd, buffer, len);
         if (w < 0) return false;
         len -= w;
         buffer += w;
     }
-    return write(fd, "\n", 1) == 1;
+    return true;
 }
 
-static int usage(const char *progname) {
-    fprintf(stderr, "usage:\n"
+// Write the sequence of string-views to file-descriptor.
+// Needs "scratch_buffer" to be large enough to contain all of them.
+static bool write_snippets(int fd, char *scratch_buffer,
+                           SnippetIterator begin, SnippetIterator end) {
+    // Note: not using writev(), as snippets can be a lot and writev() has a
+    // bunch of limitations (e.g. UIO_MAXIOV == 1024). Thus simply
+    // reassmbling into buffer.
+    char *pos = scratch_buffer;
+    for (SnippetIterator it = begin; it != end; ++it) {
+        memcpy(pos, it->data(), it->size());
+        pos += it->size();
+    }
+    return reliable_write(fd, scratch_buffer, pos - scratch_buffer);
+}
+
+static int64_t get_time_ms() {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return (int64_t) tv.tv_sec * 1000 + (int64_t) tv.tv_usec / 1000;
+}
+
+static int usage(const char *progname, const char *message) {
+    fprintf(stderr, "%sUsage:\n"
             "%s [options] <gcode-file> [<connection-string>]\n"
             "Options:\n"
-            "\t-n : Dry-run. Don't actually send anything.\n"
+            "\t-b <count> : Number of blocks sent out buffered before \n"
+            "\t     checking the returning flow-control 'ok'. Dangerous if\n"
+            "\t     machine has little memory. Default: 1\n"
+            "\t-c : Include semicolon end-of-line comments (they are stripped\n"
+            "\t     by default)\n"
+            "\t-n : Dry-run. Read GCode but don't actually send anything.\n"
             "\t-q : Quiet. Don't output diagnostic messages or "
             "echo regular communication.\n"
             "\t     Apply -q twice to even suppress "
             "non-handshake communication.\n"
-            "\t-F : Disable waiting for 'ok'-acknowledge.\n"
+            "\t-F : Disable waiting for 'ok'-acknowledge flow-control.\n"
             "\n"
             "<gcode-file> is either a filename or '-' for stdin\n"
             "\n"
@@ -57,36 +91,13 @@ static int usage(const char *progname) {
             "(e.g. http://beagleg.org/)\n"
             "   you specify the connection string as host:port. Example:\n"
             "   \tlocalhost:4444\n",
-            progname);
+            message, progname);
 
     fprintf(stderr, "\nExamples:\n"
             "%s file.gcode /dev/ttyACM0,b115200\n"
             "%s file.gcode localhost:4444\n",
             progname, progname);
     return 1;
-}
-
-static int64_t get_time_ms() {
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    return (int64_t) tv.tv_sec * 1000 + (int64_t) tv.tv_usec / 1000;
-}
-
-// The std::istream does handle EOF flag poorly with stdin, e.g. an
-// end-of-file on /dev/stdin will not be detected properly.
-// Use old-school C-style filestreams to handle this.
-// Read from "in", store line in "out". Return if line-reading was successful.
-// Returned string_view content is valid until the next call to read_line().
-static bool read_line(FILE *in, std::string_view *out) {
-    static char *buffer = nullptr;   // static: Re-use buffer between calls.
-    static size_t n = 0;
-    ssize_t result = getline(&buffer, &n, in);
-
-    if (result >= 0 && buffer) {
-        *out = std::string_view(buffer, result);
-        return true;
-    }
-    return false;
 }
 
 // Very crude error handling. If this is an interactive session we can ask
@@ -106,18 +117,21 @@ static void handle_error_or_exit() {
 }
 
 int main(int argc, char *argv[]) {
-    // command line options.
-    bool use_ok_flow_control = true;   // if false, just blast out.
+    // Command line options.
+    bool use_ok_flow_control = true;   // if false, don't wait for 'ok' response
     bool is_dry_run = false;           // if true, don't actually send anything
-    bool quiet = false;                // Don't print addtional diagnostics
+    bool quiet = false;                // Don't print diagnostics
     bool print_unusual_messages = true;  // messages not expected from handshake
+    int block_buffer_count = 1;     // Number of blocks sent at once.
+    bool remove_semicolon_comments = true;
+    bool print_communication = true;   // if true, print line+block to stdout
 
     // No cli options yet.
     int initial_squash_chatter_ms = 300;  // Time for initial chatter to finish
-    bool print_communication = true;   // if true, print line+block to stdout
+    size_t buffer_size = (1 << 20);       // Input buffer in bytes.
 
     int opt;
-    while ((opt = getopt(argc, argv, "nqF")) != -1) {
+    while ((opt = getopt(argc, argv, "b:cFhnq")) != -1) {
         switch (opt) {
         case 'n':
             is_dry_run = true;
@@ -130,17 +144,33 @@ int main(int argc, char *argv[]) {
         case 'F':
             use_ok_flow_control = false;
             break;
+        case 'b':
+            block_buffer_count = atoi(optarg);
+            if (block_buffer_count < 1)
+                return usage(argv[0], "Invalid block buffer\n");
+            break;
+        case 'c':
+            remove_semicolon_comments = false;
+            break;
+        case 'h':
+            return usage(argv[0], "");
         default:
-            return usage(argv[0]);
+            return usage(argv[0], "Invalid option\n");
         }
     }
 
     if (optind >= argc)
-        return usage(argv[0]);
+        return usage(argv[0], "Expected filename\n");
+
+    char *write_scratch_buffer = new char[buffer_size];
 
     // Input
     const char *const filename = argv[optind];
-    FILE *input = filename == std::string("-") ? stdin : fopen(filename, "r");
+    int input_fd = (filename == std::string("-"))
+        ? STDIN_FILENO
+        : open(filename, O_RDONLY);
+
+    GCodeLineReader reader(input_fd, buffer_size, remove_semicolon_comments);
 
     // Output
     const char *const connect_str = (optind < argc-1)
@@ -174,55 +204,53 @@ int main(int argc, char *argv[]) {
 
     std::string_view line;
     int line_no = 0;
-    int lines_sent = 0;
     const int64_t start_time = get_time_ms();
-    while (read_line(input, &line)) {
-        line_no++;
+    while (!reader.is_eof()) {
+        auto lines = reader.ReadNextLines();
 
-        // Strip any comments that start with ; to the end of the line
-        const size_t comment_start = line.find_first_of(';');
-        if (comment_start != std::string_view::npos) {
-            line.remove_suffix(line.size() - comment_start);
-        }
+        // We got a whole bunch of lines. Divide them into chunks of
+        // block_buffer_count, the maxium number of blocks we have outstanding
+        // before checking the 'ok' responses.
 
-        // Now, strip away any trailing spaces
-        while (!line.empty() && isspace(line[line.size()-1])) {
-            line.remove_suffix(1);
-        }
+        const SnippetIterator overall_lines_end = lines.end();
+        SnippetIterator chunk_begin = lines.begin();
+        SnippetIterator chunk_end;
+        while (chunk_begin < overall_lines_end) {
+            chunk_end = std::min(chunk_begin + block_buffer_count,
+                                 overall_lines_end);
+            if (!is_dry_run && !write_snippets(machine_fd, write_scratch_buffer,
+                                               chunk_begin, chunk_end)) {
+                fprintf(stderr, "Couldn't write!\n");
+                return 1;
+            }
 
-        // Nothing left to send: skip.
-        if (line.empty()) {
-            continue;
-        }
+            // We've sent all the lines above at once, now looking at the
+            // expected responses for each block.
+            // Associate each line with its corresponding output.
+            for (auto it = chunk_begin; it != chunk_end; ++it) {
+                std::string_view line = *it;
+                line_no++;
+                if (print_communication) {
+                    printf("%6d\t%.*s ", line_no,
+                           (int)line.size() - 1,  // Excluding the newline char
+                           line.data());
+                    fflush(stdout);
+                }
 
-        if (print_communication) {
-            printf("%4d| %.*s ", line_no, (int)line.size(), line.data());
-            fflush(stdout);
-        }
+                // The OK flow control used by all these serial machine controls
+                if (use_ok_flow_control &&
+                    !WaitForOkAck(
+                        machine_fd,
+                        print_unusual_messages,  // print errors
+                        print_communication)) {  // seprate with newline
+                    handle_error_or_exit();
+                } else {
+                    if (print_communication)
+                        printf(use_ok_flow_control ? "<< OK\n" : "\n");
+                }
+            }
 
-        // We now have a line stripped of any whitespace or newline character
-        // at the end.
-        // Write this plus exactly one newline now. GRBL and Smoothieware
-        // for instance would consider sending \r\n as two lines (and send two
-        // 'ok' in response), so this makes sure we send one block for which
-        // we expect exactly one 'ok' below.
-        if (!is_dry_run &&
-            !reliable_writeln(machine_fd, line.data(), line.size())) {
-            fprintf(stderr, "Couldn't write!\n");
-            return 1;
-        }
-
-        lines_sent++;
-
-        // The OK 'flow control' used by all these serial machine controls
-        if (use_ok_flow_control
-            && !WaitForOkAck(machine_fd,
-                             print_unusual_messages,  // print errors
-                             print_communication)) {   // seprate with newline
-            handle_error_or_exit();
-        } else {
-            if (print_communication)
-                printf(use_ok_flow_control ? "<< OK\n" : "\n");
+            chunk_begin = chunk_end; // Next round.
         }
     }
 
@@ -241,6 +269,6 @@ int main(int argc, char *argv[]) {
         const int64_t duration = get_time_ms() - start_time;
         fprintf(stderr, "Sent total of %d non-empty lines in "
                 "%" PRId64 ".%03" PRId64 "s\n",
-                lines_sent, duration / 1000, duration % 1000);
+                line_no, duration / 1000, duration % 1000);
     }
 }
