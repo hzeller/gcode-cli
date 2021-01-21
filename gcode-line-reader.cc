@@ -32,9 +32,9 @@ std::vector<std::string_view> GCodeLineReader::ReadNextLines() {
         if (r < 0) perror("Reading input");
         // Create a full line out of the remainder.
         if (!remainder_.empty()) {
-            char *end = buf + remainder_.size();
-            *end = '\n';
-            auto line = MakeCommentFreeLine(buf, end);
+            char *end_of_line = buf + remainder_.size();
+            *end_of_line = '\n';
+            auto line = MakeCommentFreeLine(buf, end_of_line);
             if (!line.empty()) result.push_back(line);
         }
         return result;
@@ -51,16 +51,16 @@ std::vector<std::string_view> GCodeLineReader::ReadNextLines() {
     return result;
 }
 
-std::string_view GCodeLineReader::MakeCommentFreeLine(
-    const char *begin, char *end)
-{
+// Note, 'last' points to the last character (typically the newline), not the
+// last character + 1 as one would assume in iterators.
+std::string_view GCodeLineReader::MakeCommentFreeLine(char *first, char *last) {
     if (remove_comments_) {
-        char *start_of_comment = (char*) memchr(begin, ';', end - begin);
-        if (start_of_comment) end = start_of_comment - 1;
+        char *start_of_comment = (char*) memchr(first, ';', last - first + 1);
+        if (start_of_comment) last = start_of_comment - 1;
     }
-    while (begin < end && isspace(*begin)) begin++;
-    while (end > begin && isspace(*end)) end--;  // There is at least one
-    if (end <= begin) return {};
-    *++end = '\n';  // Fresh newline behind resulting new end.
-    return { begin, (size_t) (end - begin + 1)};
+    while (first <= last && isspace(*first)) first++;
+    while (last >= first && isspace(*last)) last--;  // also removing newline
+    if (last < first) return {};
+    *++last = '\n';  // Fresh newline behind resulting new last.
+    return std::string_view(first, last - first + 1);
 }

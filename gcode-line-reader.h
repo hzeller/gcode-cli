@@ -24,17 +24,18 @@ public:
     GCodeLineReader(int fd, size_t buffer_size, bool remove_comments);
     ~GCodeLineReader();
 
-    bool is_eof() const { return eof_; }
-
     // Read next lines (= GCode blocks) from the input.
     // The lines returned are cleaned from end-of-line comments after ';' and
     // unnecessary whitespace at beginning and end.
     // Invalidates string_views from previous calls.
     std::vector<std::string_view> ReadNextLines();
 
+    // Return if the full file has been processed.
+    bool is_eof() const { return eof_; }
+
 private:
     // May modify the content of the buffer to place a fresh newline.
-    std::string_view MakeCommentFreeLine(const char *begin, char *end);
+    std::string_view MakeCommentFreeLine(char *first, char *last);
 
     const int fd_;
     const size_t buffer_size_;
