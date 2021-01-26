@@ -12,40 +12,55 @@
 GCodeLineReader::GCodeLineReader(int fd, size_t buffer_size,
                                  bool remove_comments)
     : fd_(fd), buffer_size_(buffer_size), buffer_(new char[buffer_size]),
-      remove_comments_(remove_comments) {
+      remove_comments_(remove_comments),
+      data_begin_(buffer_), data_end_(buffer_) {
 }
 
-GCodeLineReader::~GCodeLineReader() { close(fd_); }
+GCodeLineReader::~GCodeLineReader() {
+    close(fd_);
+    delete [] buffer_;
+}
 
-std::vector<std::string_view> GCodeLineReader::ReadNextLines() {
-    std::vector<std::string_view> result;
-    if (eof_) return result;
-    char *buf = buffer_.get();
+bool GCodeLineReader::Refill() {
+    data_begin_ = buffer_;
+    data_end_ = data_begin_;
+    if (eof_) return false;
     if (!remainder_.empty()) {
-        // get leftover to the beginning
-        memmove(buf, remainder_.data(), remainder_.size());
+        // get remainder to the beginning of the buffer.
+        memmove(data_begin_, remainder_.data(), remainder_.size());
+        data_end_ += remainder_.size();
     }
-    ssize_t r = read(fd_, buf + remainder_.size(),
-                     buffer_size_ - remainder_.size());
-    if (r <= 0) {
+    ssize_t r = read(fd_, data_end_, buffer_size_ - remainder_.size());
+    if (r > 0) {
+        data_end_ += r;
+    } else {
         eof_ = true;
         if (r < 0) perror("Reading input");
-        if (remainder_.empty()) {
+        if (!remainder_.empty()) {
+            // Close remainder with a newline
+            *data_end_++ = '\n';
+        }
+    }
+    remainder_ = {};
+    return data_end_ > data_begin_;
+}
+
+std::vector<std::string_view> GCodeLineReader::ReadNextLines(size_t n) {
+    std::vector<std::string_view> result;
+    if (data_begin_ >= data_end_ && !Refill())
+        return result;
+    const char *const end = data_end_;
+    char *end_line;
+    while ((end_line = (char*)memchr(data_begin_, '\n', end-data_begin_))) {
+        auto line = MakeCommentFreeLine(data_begin_, end_line);
+        if (!line.empty()) result.push_back(line);
+        data_begin_ = end_line + 1;
+        if (result.size() >= n) {
             return result;
         }
-        char *end_of_line = buf + remainder_.size();
-        *end_of_line = '\n';
-        r = 1;  // Pretend to have 'read' a final newline.
     }
-    const char *end = buf + remainder_.size() + r;
-    char *start_line = buf;
-    char *end_line;
-    while ((end_line = (char*)memchr(start_line, '\n', end - start_line))) {
-        auto line = MakeCommentFreeLine(start_line, end_line);
-        if (!line.empty()) result.push_back(line);
-        start_line = end_line + 1;
-    }
-    remainder_ = std::string_view(start_line, end - start_line);
+    remainder_ = std::string_view(data_begin_, end - data_begin_);
+    data_begin_ = data_end_;  // consume all.
     return result;
 }
 

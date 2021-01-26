@@ -6,7 +6,6 @@
 #define GCODE_LINE_READER_H
 
 #include <string_view>
-#include <memory>
 #include <vector>
 
 // Reader of gcode input yielding preprocessed blocks without comments or
@@ -24,11 +23,12 @@ public:
     GCodeLineReader(int fd, size_t buffer_size, bool remove_comments);
     ~GCodeLineReader();
 
-    // Read next lines (= GCode blocks) from the input.
+    // Read at most 'n' next lines (= GCode blocks) from the input.
+    // Might return less.
     // The lines returned are cleaned from end-of-line comments after ';' and
     // unnecessary whitespace at beginning and end.
-    // Invalidates string_views from previous calls.
-    std::vector<std::string_view> ReadNextLines();
+    // Invalidates string_views returned by previous calls.
+    std::vector<std::string_view> ReadNextLines(size_t n);
 
     // Return if the full file has been processed.
     bool is_eof() const { return eof_; }
@@ -36,14 +36,17 @@ public:
 private:
     // May modify the content of the buffer to place a fresh newline.
     std::string_view MakeCommentFreeLine(char *first, char *last);
+    bool Refill();
 
     const int fd_;
     const size_t buffer_size_;
-    std::unique_ptr<char[]> const buffer_;
+    char *const buffer_;
     const bool remove_comments_;
 
     bool eof_ = false;
-    std::string_view remainder_;  // incomplete line at the end.
+    char *data_begin_;
+    char *data_end_;
+    std::string_view remainder_;  // incomplete line at end of buffer
 };
 
 #endif // GCODE_LINE_READER_H

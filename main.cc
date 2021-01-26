@@ -23,8 +23,6 @@
 #define ALERT_ON "\033[41m\033[30m"
 #define ALERT_OFF "\033[0m"
 
-typedef std::vector<std::string_view>::iterator SnippetIterator;
-
 // Write buffer to fd.
 static bool reliable_write(int fd, const char *buffer, int len) {
     while (len) {
@@ -38,15 +36,15 @@ static bool reliable_write(int fd, const char *buffer, int len) {
 
 // Write the sequence of string-views to file-descriptor.
 // Needs "scratch_buffer" to be large enough to contain all of them.
-static bool write_snippets(int fd, char *scratch_buffer,
-                           SnippetIterator begin, SnippetIterator end) {
+static bool write_blocks(int fd, char *scratch_buffer,
+                         const std::vector<std::string_view> &blocks) {
     // Note: not using writev(), as snippets can be a lot and writev() has a
     // bunch of limitations (e.g. UIO_MAXIOV == 1024). Thus simply
     // reassmbling into buffer.
     char *pos = scratch_buffer;
-    for (SnippetIterator it = begin; it != end; ++it) {
-        memcpy(pos, it->data(), it->size());
-        pos += it->size();
+    for (auto block : blocks) {
+        memcpy(pos, block.data(), block.size());
+        pos += block.size();
     }
     return reliable_write(fd, scratch_buffer, pos - scratch_buffer);
 }
@@ -162,8 +160,6 @@ int main(int argc, char *argv[]) {
     if (optind >= argc)
         return usage(argv[0], "Expected filename\n");
 
-    char *write_scratch_buffer = new char[buffer_size];
-
     // Input
     const char *const filename = argv[optind];
     int input_fd = (filename == std::string("-"))
@@ -202,55 +198,40 @@ int main(int argc, char *argv[]) {
                 connect_str, is_dry_run ? " (Dry-run)" : "");
     }
 
-    std::string_view line;
+    char *scratch_buffer = new char[buffer_size];
     int line_no = 0;
     const int64_t start_time = get_time_ms();
     while (!reader.is_eof()) {
-        auto lines = reader.ReadNextLines();
+        auto lines = reader.ReadNextLines(block_buffer_count);
 
-        // We got a whole bunch of lines. Divide them into chunks of
-        // block_buffer_count, the maxium number of blocks we have outstanding
-        // before checking the 'ok' responses.
+        if (!is_dry_run && !write_blocks(machine_fd, scratch_buffer, lines)) {
+            fprintf(stderr, "Couldn't write!\n");
+            return 1;
+        }
 
-        const SnippetIterator overall_lines_end = lines.end();
-        SnippetIterator chunk_begin = lines.begin();
-        SnippetIterator chunk_end;
-        while (chunk_begin < overall_lines_end) {
-            chunk_end = std::min(chunk_begin + block_buffer_count,
-                                 overall_lines_end);
-            if (!is_dry_run && !write_snippets(machine_fd, write_scratch_buffer,
-                                               chunk_begin, chunk_end)) {
-                fprintf(stderr, "Couldn't write!\n");
-                return 1;
+        // We've sent all the lines above at once, now looking at the
+        // expected responses for each block.
+        // Associate each line with its corresponding output.
+        for (auto line : lines) {
+            line_no++;
+            if (print_communication) {
+                printf("%6d\t%.*s ", line_no,
+                       (int)line.size() - 1,  // Excluding the newline char
+                       line.data());
+                fflush(stdout);
             }
 
-            // We've sent all the lines above at once, now looking at the
-            // expected responses for each block.
-            // Associate each line with its corresponding output.
-            for (auto it = chunk_begin; it != chunk_end; ++it) {
-                std::string_view line = *it;
-                line_no++;
-                if (print_communication) {
-                    printf("%6d\t%.*s ", line_no,
-                           (int)line.size() - 1,  // Excluding the newline char
-                           line.data());
-                    fflush(stdout);
-                }
-
-                // The OK flow control used by all these serial machine controls
-                if (use_ok_flow_control &&
-                    !WaitForOkAck(
-                        machine_fd,
-                        print_unusual_messages,  // print errors
-                        print_communication)) {  // seprate with newline
-                    handle_error_or_exit();
-                } else {
-                    if (print_communication)
-                        printf(use_ok_flow_control ? "<< OK\n" : "\n");
-                }
+            // The OK flow control used by all these serial machine controls
+            if (use_ok_flow_control &&
+                !WaitForOkAck(
+                    machine_fd,
+                    print_unusual_messages,  // print errors
+                    print_communication)) {  // seprate with newline
+                handle_error_or_exit();
+            } else {
+                if (print_communication)
+                    printf(use_ok_flow_control ? "<< OK\n" : "\n");
             }
-
-            chunk_begin = chunk_end; // Next round.
         }
     }
 
