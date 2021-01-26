@@ -25,19 +25,17 @@ std::vector<std::string_view> GCodeLineReader::ReadNextLines() {
         // get leftover to the beginning
         memmove(buf, remainder_.data(), remainder_.size());
     }
-    const ssize_t r = read(fd_, buf + remainder_.size(),
-                           buffer_size_ - remainder_.size());
+    ssize_t r = read(fd_, buf + remainder_.size(),
+                     buffer_size_ - remainder_.size());
     if (r <= 0) {
         eof_ = true;
         if (r < 0) perror("Reading input");
-        // Create a full line out of the remainder.
-        if (!remainder_.empty()) {
-            char *end_of_line = buf + remainder_.size();
-            *end_of_line = '\n';
-            auto line = MakeCommentFreeLine(buf, end_of_line);
-            if (!line.empty()) result.push_back(line);
+        if (remainder_.empty()) {
+            return result;
         }
-        return result;
+        char *end_of_line = buf + remainder_.size();
+        *end_of_line = '\n';
+        r = 1;  // Pretend to have 'read' a final newline.
     }
     const char *end = buf + remainder_.size() + r;
     char *start_line = buf;
