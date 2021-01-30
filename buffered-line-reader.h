@@ -18,10 +18,10 @@
 // Leading and trailing whitespace removed.
 // Line-endings '\r\n' or '\n' are canonicalized to be exactly one '\n'.
 // Empty lines are removed.
-class GCodeLineReader {
+class BufferedLineReader {
 public:
-    GCodeLineReader(int fd, size_t buffer_size, bool remove_comments);
-    ~GCodeLineReader();
+    BufferedLineReader(int fd, size_t buffer_size, bool remove_comments);
+    ~BufferedLineReader();
 
     // Read at most 'n' next lines (= GCode blocks) from the input.
     // Might return less.
@@ -30,8 +30,11 @@ public:
     // Invalidates string_views returned by previous calls.
     std::vector<std::string_view> ReadNextLines(size_t n);
 
+    // Convenience: read a single line.
+    std::string_view ReadLine();
+
     // Return if the full file has been processed.
-    bool is_eof() const { return eof_; }
+    inline bool is_eof() const { return eof_; }
 
 private:
     // May modify the content of the buffer to place a fresh newline.

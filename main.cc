@@ -17,11 +17,14 @@
 #include <string_view>
 #include <vector>
 
-#include "gcode-line-reader.h"
+#include "buffered-line-reader.h"
 #include "machine-connection.h"
 
 #define ALERT_ON "\033[41m\033[30m"
 #define ALERT_OFF "\033[0m"
+
+#define EXTRA_MESSAGE_ON "\033[7m"
+#define EXTRA_MESSAGE_OFF "\033[0m"
 
 // Write buffer to fd.
 static bool reliable_write(int fd, const char *buffer, int len) {
@@ -98,7 +101,7 @@ static int usage(const char *progname, const char *message) {
     return 1;
 }
 
-// Very crude error handling. If this is an interactive session we can ask
+// Very crude error handling 'ui'. If this is an interactive session we can ask
 // the user to decide.
 static void handle_error_or_exit() {
     if (isatty(STDIN_FILENO)) {  // interactive.
@@ -112,6 +115,30 @@ static void handle_error_or_exit() {
                 ALERT_OFF "\n");
         exit(1);
     }
+}
+
+// Read and classify response from machine. Currently, we expect a line with
+// 'ok' at the beginning for an acknowledged block, 'error' at the beginning
+// for some kind of error, and everything else a message (e.g. output of
+// current temperature values.
+enum class AckResponse { kOk, kError, kMessage };
+static AckResponse ReadResponse(bool use_flow_control,
+                                BufferedLineReader &flow_input,
+                                std::string_view *return_message) {
+    if (!use_flow_control)
+        return AckResponse::kOk;  // Don't read, always assume 'ok'.
+    const std::string_view ack_msg = flow_input.ReadLine();
+    if (flow_input.is_eof()) {
+        *return_message = "Nothing received from machine: Connection closed";
+        return AckResponse::kError;
+    }
+    if (ack_msg.size() >= 2 && strncasecmp(ack_msg.data(), "ok", 2) == 0)
+        return AckResponse::kOk;
+    *return_message = ack_msg;  // Any other ack message is useful. Return.
+    // TODO: there might be other ways machines report errors.
+    if (ack_msg.size() >= 5 && strncasecmp(ack_msg.data(), "error", 5) == 0)
+        return AckResponse::kError;
+    return AckResponse::kMessage;
 }
 
 int main(int argc, char *argv[]) {
@@ -160,15 +187,17 @@ int main(int argc, char *argv[]) {
     if (optind >= argc)
         return usage(argv[0], "Expected filename\n");
 
-    // Input
+    // Input: Open GCode file
     const char *const filename = argv[optind];
     int input_fd = (filename == std::string("-"))
         ? STDIN_FILENO
         : open(filename, O_RDONLY);
+    if (input_fd < 0) {
+        fprintf(stderr, "Can't open input %s: %s\n", filename, strerror(errno));
+        return 1;
+    }
 
-    GCodeLineReader reader(input_fd, buffer_size, remove_semicolon_comments);
-
-    // Output
+    // Output: open machine connection.
     const char *const connect_str = (optind < argc-1)
         ? argv[optind+1]
         : "/dev/ttyACM0,b115200";
@@ -198,40 +227,61 @@ int main(int argc, char *argv[]) {
                 connect_str, is_dry_run ? " (Dry-run)" : "");
     }
 
+    BufferedLineReader gcode_reader(input_fd, buffer_size,
+                                    remove_semicolon_comments);
+    BufferedLineReader flow_control_input(machine_fd, (1<<16), false);
     char *scratch_buffer = new char[buffer_size];
     int line_no = 0;
     const int64_t start_time = get_time_ms();
-    while (!reader.is_eof()) {
-        auto lines = reader.ReadNextLines(block_buffer_count);
+    while (!gcode_reader.is_eof()) {
+        auto lines = gcode_reader.ReadNextLines(block_buffer_count);
 
+        // Send all block_buffer_count blocks at once.
         if (!is_dry_run && !write_blocks(machine_fd, scratch_buffer, lines)) {
             fprintf(stderr, "Couldn't write!\n");
             return 1;
         }
 
         // We've sent all the lines above at once, now looking at the
-        // expected responses for each block.
-        // Associate each line with its corresponding output.
-        for (auto line : lines) {
+        // expected responses for each block and possibly print the lines
+        // together with their corresponding response.
+        for (auto request : lines) {
             line_no++;
-            if (print_communication) {
-                printf("%6d\t%.*s ", line_no,
-                       (int)line.size() - 1,  // Excluding the newline char
-                       line.data());
-                fflush(stdout);
-            }
+            bool request_line_already_printed = false;
+            AckResponse response;
+            do {
+                std::string_view print_msg;
+                response = ReadResponse(use_ok_flow_control, flow_control_input,
+                                        &print_msg);
 
-            // The OK flow control used by all these serial machine controls
-            if (use_ok_flow_control &&
-                !WaitForOkAck(
-                    machine_fd,
-                    print_unusual_messages,  // print errors
-                    print_communication)) {  // seprate with newline
-                handle_error_or_exit();
-            } else {
-                if (print_communication)
-                    printf(use_ok_flow_control ? "<< OK\n" : "\n");
-            }
+                // Now we know enough if we should print the original
+                // request. Whenever there is some unusual stuff going on, we
+                // want to print the original message first before the response.
+                const bool needs_printing = (
+                    print_communication ||
+                    response == AckResponse::kError ||
+                    (print_unusual_messages && response != AckResponse::kOk));
+
+                if (needs_printing) {
+                    if (!request_line_already_printed) {
+                        printf("%6d\t%.*s ", line_no,
+                               (int)request.size() - 1, request.data());
+                        request_line_already_printed = true;
+                    }
+                    if (response == AckResponse::kOk) {
+                        printf(use_ok_flow_control ? "<< OK\n" : "\n");
+                    } else {
+                        printf("\n%s%.*s%s", EXTRA_MESSAGE_ON,
+                               (int)print_msg.size(), print_msg.data(),
+                               EXTRA_MESSAGE_OFF);
+                    }
+                    fflush(stdout);
+                }
+
+                if (response == AckResponse::kError) {
+                    handle_error_or_exit();
+                }
+            } while (response == AckResponse::kMessage);  // more to come
         }
     }
 
@@ -246,6 +296,8 @@ int main(int argc, char *argv[]) {
     }
 
     close(machine_fd);
+    close(input_fd);
+
     if (!quiet) {
         const int64_t duration = get_time_ms() - start_time;
         fprintf(stderr, "Sent total of %d non-empty lines in "

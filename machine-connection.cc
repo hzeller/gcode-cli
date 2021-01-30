@@ -90,20 +90,6 @@ static int AwaitReadReady(int fd, int timeout_millis) {
     return tv.tv_usec / 1000;
 }
 
-static int ReadLine(int fd, char *result, int len, bool do_echo) {
-    int bytes_read = 0;
-    char c = 0;
-    while (c != '\n' && c != '\r' && bytes_read < len-1) {
-        if (read(fd, &c, 1) < 0)
-            return -1;
-        ++bytes_read;
-        *result++ = c;
-        if (do_echo) write(STDERR_FILENO, &c, 1);  // echo back.
-    }
-    *result = '\0';
-    return bytes_read;
-}
-
 /*
  *
  *  Public interface functions
@@ -188,45 +174,4 @@ int DiscardPendingInput(int fd, int timeout_ms, bool echo_received_data) {
         }
     }
     return total_bytes;
-}
-
-// 'ok' comes on a single line, maybe followed by something.
-bool WaitForOkAck(int fd, bool print_errors, bool errors_on_new_line) {
-    char buffer[512] = {};
-    int lines_printed = 0;
-    for (;;) {
-        int got_chars = ReadLine(fd, buffer, sizeof(buffer), false);
-        if (got_chars < 0) {
-            fprintf(stderr, "\n--> got EOF <-- \n");
-            return false;
-        }
-
-        if (got_chars == 1 && (buffer[0] == '\r' || buffer[0] == '\n'))
-            continue;  // Just some random newline.
-
-        if (got_chars >= 2 && strncasecmp(buffer, "ok", 2) == 0) {
-            return true;
-        }
-
-        // If we didn't get 'ok', it might be an important error message.
-        // Remove trailing newlines and print.
-        if (print_errors) {
-            buffer[got_chars-1] = '\0';
-            while (got_chars && isspace(buffer[got_chars-1])) {
-                buffer[got_chars-1] = '\0';
-                got_chars--;
-            }
-            if (errors_on_new_line && lines_printed == 0) {
-                fprintf(stderr, "\n");  // separate non-handshake message
-            }
-            fprintf(stderr, "\033[7m%s\033[0m\n", buffer);
-            ++lines_printed;
-        }
-
-        // If the message indeed starts with 'error', we can return. Otherwise
-        // we keep sending stuff.
-        if (got_chars >= 5 && strncasecmp(buffer, "error", 5) == 0) {
-            return false;
-        }
-    }
 }

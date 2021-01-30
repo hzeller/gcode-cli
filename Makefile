@@ -3,7 +3,7 @@ PREFIX?=/usr/local
 
 CXXFLAGS=-W -Wall -Wextra -O2 -std=c++17
 
-gcode-cli: main.o machine-connection.o gcode-line-reader.o
+gcode-cli: main.o machine-connection.o buffered-line-reader.o
 	$(CXX) -o $@ $^
 
 install: gcode-cli

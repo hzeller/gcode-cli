@@ -2,26 +2,26 @@
  * (c) h.zeller@acm.org. Free Software. GNU Public License v3.0 and above
  */
 
-#include "gcode-line-reader.h"
+#include "buffered-line-reader.h"
 
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <algorithm>
 
-GCodeLineReader::GCodeLineReader(int fd, size_t buffer_size,
+BufferedLineReader::BufferedLineReader(int fd, size_t buffer_size,
                                  bool remove_comments)
     : fd_(fd), buffer_size_(buffer_size), buffer_(new char[buffer_size]),
       remove_comments_(remove_comments),
       data_begin_(buffer_), data_end_(buffer_) {
 }
 
-GCodeLineReader::~GCodeLineReader() {
-    close(fd_);
+BufferedLineReader::~BufferedLineReader() {
     delete [] buffer_;
 }
 
-bool GCodeLineReader::Refill() {
+bool BufferedLineReader::Refill() {
     data_begin_ = buffer_;
     data_end_ = data_begin_;
     if (eof_) return false;
@@ -45,13 +45,15 @@ bool GCodeLineReader::Refill() {
     return data_end_ > data_begin_;
 }
 
-std::vector<std::string_view> GCodeLineReader::ReadNextLines(size_t n) {
+std::vector<std::string_view> BufferedLineReader::ReadNextLines(size_t n) {
     std::vector<std::string_view> result;
+    result.reserve(n);
     if (data_begin_ >= data_end_ && !Refill())
         return result;
-    const char *const end = data_end_;
     char *end_line;
-    while ((end_line = (char*)memchr(data_begin_, '\n', end-data_begin_))) {
+    while ((end_line = std::find_if(data_begin_, data_end_,
+                                    [](char c) { return c == '\n'||c == '\r'; }
+                                    )) != data_end_) {
         auto line = MakeCommentFreeLine(data_begin_, end_line);
         if (!line.empty()) result.push_back(line);
         data_begin_ = end_line + 1;
@@ -59,14 +61,24 @@ std::vector<std::string_view> GCodeLineReader::ReadNextLines(size_t n) {
             return result;
         }
     }
-    remainder_ = std::string_view(data_begin_, end - data_begin_);
+    remainder_ = std::string_view(data_begin_, data_end_ - data_begin_);
     data_begin_ = data_end_;  // consume all.
     return result;
 }
 
+std::string_view BufferedLineReader::ReadLine() {
+    while (!is_eof()) {
+        auto lines = ReadNextLines(1);
+        if (lines.empty()) continue;  // could happen at buffer switchover
+        return lines[0];
+    }
+    return {};
+}
+
 // Note, 'last' points to the last character (typically the newline), not the
 // last character + 1 as one would assume in iterators.
-std::string_view GCodeLineReader::MakeCommentFreeLine(char *first, char *last) {
+std::string_view BufferedLineReader::MakeCommentFreeLine(
+    char *first, char *last) {
     if (remove_comments_) {
         char *start_of_comment = (char*) memchr(first, ';', last - first + 1);
         if (start_of_comment) last = start_of_comment - 1;
