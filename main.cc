@@ -62,9 +62,13 @@ static int usage(const char *progname, const char *message) {
     fprintf(stderr, "%sUsage:\n"
             "%s [options] <gcode-file> [<connection-string>]\n"
             "Options:\n"
-            "\t-b <count> : Number of blocks sent out buffered before \n"
-            "\t     checking the returning flow-control 'ok'. Dangerous if\n"
-            "\t     machine has little memory. Default: 1\n"
+            "\t-s <millis> : Wait this time for init "
+            "chatter from machine to subside.\n"
+            "\t              Default: 300\n"
+            "\t-b <count>  : Number of blocks sent out buffered before \n"
+            "\t              checking the returning flow-control 'ok'.\n"
+            "\t              Careful, low memory machines might drop data.\n"
+            "\t              Default: 1\n"
             "\t-c : Include semicolon end-of-line comments (they are stripped\n"
             "\t     by default)\n"
             "\t-n : Dry-run. Read GCode but don't actually send anything.\n"
@@ -150,13 +154,13 @@ int main(int argc, char *argv[]) {
     int block_buffer_count = 1;     // Number of blocks sent at once.
     bool remove_semicolon_comments = true;
     bool print_communication = true;   // if true, print line+block to stdout
+    int initial_squash_chatter_ms = 300;  // Time for initial chatter to finish
 
     // No cli options yet.
-    int initial_squash_chatter_ms = 300;  // Time for initial chatter to finish
     size_t buffer_size = (1 << 20);       // Input buffer in bytes.
 
     int opt;
-    while ((opt = getopt(argc, argv, "b:cFhnq")) != -1) {
+    while ((opt = getopt(argc, argv, "b:cFhnqs:")) != -1) {
         switch (opt) {
         case 'n':
             is_dry_run = true;
@@ -176,6 +180,12 @@ int main(int argc, char *argv[]) {
             break;
         case 'c':
             remove_semicolon_comments = false;
+            break;
+        case 's':
+            initial_squash_chatter_ms = atoi(optarg);
+            if (initial_squash_chatter_ms < 0) {
+                return usage(argv[0], "Invalid startup squash timeout\n");
+            }
             break;
         case 'h':
             return usage(argv[0], "");
