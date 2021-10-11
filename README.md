@@ -16,9 +16,12 @@ Grbl-based CNC as well as various machines I run with [BeagleG].
 Usage:
 gcode-cli [options] <gcode-file> [<connection-string>]
 Options:
-        -b <count> : Number of blocks sent out buffered before
-             checking the returning flow-control 'ok'. Dangerous if
-             machine has little memory. Default: 1
+        -s <millis> : Wait this time for init chatter from machine to subside.
+                      Default: 300
+        -b <count>  : Number of blocks sent out buffered before
+                      checking the returning flow-control 'ok'.
+                      Careful, low memory machines might drop data.
+                      Default: 1
         -c : Include semicolon end-of-line comments (they are stripped
              by default)
         -n : Dry-run. Read GCode but don't actually send anything.
