@@ -121,40 +121,64 @@ static void handle_error_or_exit() {
     }
 }
 
+// Check for case-insensitive prefix
+static bool hasPrefixIgnoreCase(std::string_view msg, std::string_view prefix) {
+    return (msg.length() >= prefix.length()
+            && strncasecmp(msg.data(), prefix.data(), prefix.length()) == 0);
+}
+
 // Read and classify response from machine. Currently, we expect a line with
 // 'ok' at the beginning for an acknowledged block, 'error' at the beginning
 // for some kind of error, and everything else a message (e.g. output of
 // current temperature values.
 enum class AckResponse { kOk, kError, kMessage };
-static AckResponse ReadResponse(bool use_flow_control,
-                                BufferedLineReader &flow_input,
-                                std::string_view *return_message) {
-    if (!use_flow_control)
+static AckResponse ReadResponseLine(bool use_flow_control,
+                                    BufferedLineReader &flow_input,
+                                    std::string_view *return_message) {
+    if (!use_flow_control) {
         return AckResponse::kOk;  // Don't read, always assume 'ok'.
+    }
+
     const std::string_view ack_msg = flow_input.ReadLine();
     if (flow_input.is_eof()) {
         *return_message = "Nothing received from machine: Connection closed";
         return AckResponse::kError;
     }
-    if (ack_msg.size() >= 2 && strncasecmp(ack_msg.data(), "ok", 2) == 0)
+
+    // TODO: there might be other ways machines report ok or errors.
+
+    // OK response.
+    if (hasPrefixIgnoreCase(ack_msg, "ok")) {
         return AckResponse::kOk;
-    *return_message = ack_msg;  // Any other ack message is useful. Return.
-    // TODO: there might be other ways machines report errors.
-    if (ack_msg.size() >= 5 && strncasecmp(ack_msg.data(), "error", 5) == 0)
+    }
+
+    // Any non-ok messages are useful to print. Return.
+    *return_message = ack_msg;
+
+    // ERROR response.
+    if (hasPrefixIgnoreCase(ack_msg, "error") ||
+        hasPrefixIgnoreCase(ack_msg, "alarm")) {
         return AckResponse::kError;
+    }
+
+    // Neither one or the other, so regard this as just a line that is not
+    // a completed response yet.
     return AckResponse::kMessage;
 }
 
 int main(int argc, char *argv[]) {
+    FILE *log_gcode = stderr;  // Write gcode debug stream here.
+    FILE *log_info = stderr;   // info log, can be switched off with -q
+
     // Command line options.
     bool use_ok_flow_control = true;   // if false, don't wait for 'ok' response
     bool is_dry_run = false;           // if true, don't actually send anything
-    bool quiet = false;                // Don't print diagnostics
-    bool print_unusual_messages = true;  // messages not expected from handshake
-    int block_buffer_count = 1;     // Number of blocks sent at once.
+    int block_buffer_count = 1;           // Number of blocks sent at once.
     bool remove_semicolon_comments = true;
-    bool print_communication = true;   // if true, print line+block to stdout
     int initial_squash_chatter_ms = 300;  // Time for initial chatter to finish
+
+    bool print_communication = true;     // print line+block to $log_gcode
+    bool print_unusual_messages = true;  // messages not expected from handshake
 
     // No cli options yet.
     size_t buffer_size = (1 << 20);       // Input buffer in bytes.
@@ -166,8 +190,9 @@ int main(int argc, char *argv[]) {
             is_dry_run = true;
             break;
         case 'q':
-            print_unusual_messages = !quiet;  // squashed if -q multiple times
-            quiet = true;
+            log_info = nullptr;
+            // unusual messages squashed if -q multiple times
+            print_unusual_messages = print_communication;
             print_communication = false;  // Make separate option ?
             break;
         case 'F':
@@ -194,8 +219,9 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (optind >= argc)
+    if (optind >= argc) {
         return usage(argv[0], "Expected filename\n");
+    }
 
     // Input: Open GCode file
     const char *const filename = argv[optind];
@@ -232,9 +258,9 @@ int main(int argc, char *argv[]) {
                             print_communication);
     }
 
-    if (!quiet) {
-        fprintf(stderr, "\n---- Sending file '%s' to '%s'%s -----\n", filename,
-                connect_str, is_dry_run ? " (Dry-run)" : "");
+    if (log_info) {
+        fprintf(log_info, "\n---- Sending file '%s' to '%s'%s -----\n",
+                filename, connect_str, is_dry_run ? " (Dry-run)" : "");
     }
 
     BufferedLineReader gcode_reader(input_fd, buffer_size,
@@ -244,7 +270,7 @@ int main(int argc, char *argv[]) {
     int line_no = 0;
     const int64_t start_time = get_time_ms();
     while (!gcode_reader.is_eof()) {
-        auto lines = gcode_reader.ReadNextLines(block_buffer_count);
+        const auto lines = gcode_reader.ReadNextLines(block_buffer_count);
 
         // Send all block_buffer_count blocks at once.
         if (!is_dry_run && !write_blocks(machine_fd, scratch_buffer, lines)) {
@@ -253,16 +279,20 @@ int main(int argc, char *argv[]) {
         }
 
         // We've sent all the lines above at once, now looking at the
-        // expected responses for each block and possibly print the lines
-        // together with their corresponding response.
-        for (auto request : lines) {
+        // expected responses for each block to confirm success.
+        // Respons to a gcode-block can be multiple lines and are expected
+        // to finish with either "ok" or "error".
+        // If communication printing requested, print the lines together with
+        // their corresponding response.
+        for (const auto request : lines) {
             line_no++;
             bool request_line_already_printed = false;
             AckResponse response;
             do {
                 std::string_view print_msg;
-                response = ReadResponse(use_ok_flow_control, flow_control_input,
-                                        &print_msg);
+                response = ReadResponseLine(use_ok_flow_control,
+                                            flow_control_input,
+                                            &print_msg);
 
                 // Now we know enough if we should print the original
                 // request. Whenever there is some unusual stuff going on, we
@@ -274,18 +304,19 @@ int main(int argc, char *argv[]) {
 
                 if (needs_printing) {
                     if (!request_line_already_printed) {
-                        printf("%6d\t%.*s ", line_no,
+                        fprintf(log_gcode, "%6d\t%.*s ", line_no,
                                (int)request.size() - 1, request.data());
                         request_line_already_printed = true;
                     }
                     if (response == AckResponse::kOk) {
-                        printf(use_ok_flow_control ? "<< OK\n" : "\n");
+                        fprintf(log_gcode,
+                                use_ok_flow_control ? "<< OK\n" : "\n");
                     } else {
-                        printf("\n%s%.*s%s", EXTRA_MESSAGE_ON,
-                               (int)print_msg.size(), print_msg.data(),
-                               EXTRA_MESSAGE_OFF);
+                        fprintf(log_gcode, "\n%s%.*s%s", EXTRA_MESSAGE_ON,
+                                (int)print_msg.size(), print_msg.data(),
+                                EXTRA_MESSAGE_OFF);
                     }
-                    fflush(stdout);
+                    fflush(log_gcode);
                 }
 
                 if (response == AckResponse::kError) {
@@ -299,8 +330,8 @@ int main(int argc, char *argv[]) {
     // if there is an imbalance of sent commands vs. acknowledge flow control
     // tokens, we'd see it now.
     if (!is_dry_run) {
-        if (!quiet)
-            fprintf(stderr, "Discarding remaining machine responses.\n");
+        if (log_info)
+            fprintf(log_info, "Discarding remaining machine responses.\n");
         DiscardPendingInput(machine_fd, initial_squash_chatter_ms,
                             print_unusual_messages);
     }
@@ -308,9 +339,9 @@ int main(int argc, char *argv[]) {
     close(machine_fd);
     close(input_fd);
 
-    if (!quiet) {
+    if (log_info) {
         const int64_t duration = get_time_ms() - start_time;
-        fprintf(stderr, "Sent total of %d non-empty lines in "
+        fprintf(log_info, "Sent total of %d non-empty lines in "
                 "%" PRId64 ".%03" PRId64 "s\n",
                 line_no, duration / 1000, duration % 1000);
     }

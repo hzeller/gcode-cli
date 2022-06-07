@@ -30,7 +30,7 @@ bool BufferedLineReader::Refill() {
         memmove(data_begin_, remainder_.data(), remainder_.size());
         data_end_ += remainder_.size();
     }
-    ssize_t r = read(fd_, data_end_, buffer_size_ - remainder_.size());
+    const ssize_t r = read(fd_, data_end_, buffer_size_ - remainder_.size());
     if (r > 0) {
         data_end_ += r;
     } else {
