@@ -20,4 +20,4 @@ int OpenMachineConnection(const char *descriptor);
 // a clean state. Returns number of bytes discarded.
 int DiscardPendingInput(int fd, int timeout_ms, bool echo_received_data);
 
-#endif // MACHINE_CONN_H
+#endif  // MACHINE_CONN_H

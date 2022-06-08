@@ -6,7 +6,6 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <string.h>
-#include <string>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -15,22 +14,24 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include <string>
+
 static bool SetTTYParams(int fd, const char *params) {
     speed_t speed = B115200;
-    if (params[0] == 'b' || params[0] == 'B')
-        params = params + 1;
+    if (params[0] == 'b' || params[0] == 'B') params = params + 1;
     if (*params) {
         int speed_number = atoi(params);
         switch (speed_number) {
-        case 9600:   speed = B9600; break;
-        case 19200:  speed = B19200; break;
-        case 38400:  speed = B38400; break;
-        case 57600:  speed = B57600; break;
+        case 9600: speed = B9600; break;
+        case 19200: speed = B19200; break;
+        case 38400: speed = B38400; break;
+        case 57600: speed = B57600; break;
         case 115200: speed = B115200; break;
         case 230400: speed = B230400; break;
         case 460800: speed = B460800; break;
         default:
-            fprintf(stderr, "Invalid speed '%s'; valid speeds are "
+            fprintf(stderr,
+                    "Invalid speed '%s'; valid speeds are "
                     "[9600, 19200, 38400, 57600, 115200, 230400, 460800]\n",
                     params);
             return false;
@@ -48,14 +49,15 @@ static bool SetTTYParams(int fd, const char *params) {
     cfsetispeed(&tty, speed);
 
     tty.c_cflag |= (CLOCAL | CREAD);  // no modem controls
-    tty.c_cflag &= ~CSIZE;
-    tty.c_cflag |= CS8;               // 8
+    tty.c_cflag &= ~CSIZE;            // Reset size as we want to choose ..
+    tty.c_cflag |= CS8;               // 8 .. bits
     tty.c_cflag &= ~PARENB;           // N
     tty.c_cflag &= ~CSTOPB;           // 1
     tty.c_cflag &= ~CRTSCTS;          // No hardware flow-control
 
     // terminal magic. Non-canonical mode
-    tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+    tty.c_iflag &=
+        ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
     tty.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
     tty.c_oflag &= ~OPOST;
 
@@ -85,8 +87,7 @@ static int AwaitReadReady(int fd, int timeout_millis) {
 
     FD_SET(fd, &read_fds);
     int s = select(fd + 1, &read_fds, NULL, NULL, &tv);
-    if (s < 0)
-        return -1;
+    if (s < 0) return -1;
     return tv.tv_usec / 1000;
 }
 
@@ -115,17 +116,16 @@ int OpenTCPSocket(const char *host) {
     if ((rc = getaddrinfo(host, port, &addr_hints, &addr_result)) != 0) {
         // We're in OpenTCPSocket(), because opening as a tty failed before,
         // so make reference of that in this error message.
-        fprintf(stderr, "Not a tty and "
+        fprintf(stderr,
+                "Not a tty and "
                 "can't resolve as TCP endpoint '%s' (port %s): %s\n",
                 host, port, gai_strerror(rc));
         free(host_copy);
         return -1;
     }
     free(host_copy);
-    if (addr_result == NULL)
-        return -1;
-    int fd = socket(addr_result->ai_family,
-                    addr_result->ai_socktype,
+    if (addr_result == NULL) return -1;
+    int fd = socket(addr_result->ai_family, addr_result->ai_socktype,
                     addr_result->ai_protocol);
     if (fd >= 0 &&
         connect(fd, addr_result->ai_addr, addr_result->ai_addrlen) < 0) {
@@ -145,7 +145,7 @@ static int OpenTTY(const char *descriptor) {
     if (fd < 0) {
         return -1;
     }
-    if (!SetTTYParams(fd, *comma ? comma+1 : "")) {
+    if (!SetTTYParams(fd, *comma ? comma + 1 : "")) {
         return -1;
     }
     return fd;

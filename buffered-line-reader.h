@@ -19,7 +19,7 @@
 // Line-endings '\r\n' or '\n' are canonicalized to be exactly one '\n'.
 // Empty lines are removed.
 class BufferedLineReader {
-public:
+   public:
     BufferedLineReader(int fd, size_t buffer_size, bool remove_comments);
     ~BufferedLineReader();
 
@@ -36,7 +36,7 @@ public:
     // Return if the full file has been processed.
     inline bool is_eof() const { return eof_; }
 
-private:
+   private:
     // May modify the content of the buffer to place a fresh newline.
     std::string_view MakeCommentFreeLine(char *first, char *last);
     bool Refill();
@@ -52,4 +52,4 @@ private:
     std::string_view remainder_;  // incomplete line at end of buffer
 };
 
-#endif // GCODE_LINE_READER_H
+#endif  // GCODE_LINE_READER_H

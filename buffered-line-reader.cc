@@ -8,18 +8,19 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+
 #include <algorithm>
 
 BufferedLineReader::BufferedLineReader(int fd, size_t buffer_size,
-                                 bool remove_comments)
-    : fd_(fd), buffer_size_(buffer_size), buffer_(new char[buffer_size]),
+                                       bool remove_comments)
+    : fd_(fd),
+      buffer_size_(buffer_size),
+      buffer_(new char[buffer_size]),
       remove_comments_(remove_comments),
-      data_begin_(buffer_), data_end_(buffer_) {
-}
+      data_begin_(buffer_),
+      data_end_(buffer_) {}
 
-BufferedLineReader::~BufferedLineReader() {
-    delete [] buffer_;
-}
+BufferedLineReader::~BufferedLineReader() { delete[] buffer_; }
 
 bool BufferedLineReader::Refill() {
     data_begin_ = buffer_;
@@ -48,12 +49,13 @@ bool BufferedLineReader::Refill() {
 std::vector<std::string_view> BufferedLineReader::ReadNextLines(size_t n) {
     std::vector<std::string_view> result;
     result.reserve(n);
-    if (data_begin_ >= data_end_ && !Refill())
+    if (data_begin_ >= data_end_ && !Refill()) {
         return result;
+    }
     char *end_line;
-    while ((end_line = std::find_if(data_begin_, data_end_,
-                                    [](char c) { return c == '\n'||c == '\r'; }
-                                    )) != data_end_) {
+    while ((end_line = std::find_if(data_begin_, data_end_, [](char c) {
+                return c == '\n' || c == '\r';
+            })) != data_end_) {
         auto line = MakeCommentFreeLine(data_begin_, end_line);
         if (!line.empty()) result.push_back(line);
         data_begin_ = end_line + 1;
@@ -77,10 +79,10 @@ std::string_view BufferedLineReader::ReadLine() {
 
 // Note, 'last' points to the last character (typically the newline), not the
 // last character + 1 as one would assume in iterators.
-std::string_view BufferedLineReader::MakeCommentFreeLine(
-    char *first, char *last) {
+std::string_view BufferedLineReader::MakeCommentFreeLine(char *first,
+                                                         char *last) {
     if (remove_comments_) {
-        char *start_of_comment = (char*) memchr(first, ';', last - first + 1);
+        char *start_of_comment = (char *)memchr(first, ';', last - first + 1);
         if (start_of_comment) last = start_of_comment - 1;
     }
     while (first <= last && isspace(*first)) first++;

@@ -20,10 +20,10 @@
 #include "buffered-line-reader.h"
 #include "machine-connection.h"
 
-#define ALERT_ON "\033[41m\033[30m"
+#define ALERT_ON  "\033[41m\033[30m"
 #define ALERT_OFF "\033[0m"
 
-#define EXTRA_MESSAGE_ON "\033[7m"
+#define EXTRA_MESSAGE_ON  "\033[7m"
 #define EXTRA_MESSAGE_OFF "\033[0m"
 
 // Write buffer to fd.
@@ -55,11 +55,12 @@ static bool write_blocks(int fd, char *scratch_buffer,
 static int64_t get_time_ms() {
     struct timeval tv;
     gettimeofday(&tv, nullptr);
-    return (int64_t) tv.tv_sec * 1000 + (int64_t) tv.tv_usec / 1000;
+    return (int64_t)tv.tv_sec * 1000 + (int64_t)tv.tv_usec / 1000;
 }
 
 static int usage(const char *progname, const char *message) {
-    fprintf(stderr, "%sUsage:\n"
+    fprintf(stderr,
+            "%sUsage:\n"
             "%s [options] <gcode-file> [<connection-string>]\n"
             "Options:\n"
             "\t-s <millis> : Wait this time for init "
@@ -98,7 +99,8 @@ static int usage(const char *progname, const char *message) {
             "   \tlocalhost:4444\n",
             message, progname);
 
-    fprintf(stderr, "\nExamples:\n"
+    fprintf(stderr,
+            "\nExamples:\n"
             "%s file.gcode /dev/ttyACM0,b115200\n"
             "%s file.gcode localhost:4444\n",
             progname, progname);
@@ -109,22 +111,23 @@ static int usage(const char *progname, const char *message) {
 // the user to decide.
 static void handle_error_or_exit() {
     if (isatty(STDIN_FILENO)) {  // interactive.
-        fprintf(stderr,
-                ALERT_ON "[ Didn't get OK. Continue: ENTER; stop: CTRL-C ]"
-                ALERT_OFF "\n");
+        fprintf(stderr, ALERT_ON
+                "[ Didn't get OK. Continue: ENTER; stop: CTRL-C ]" ALERT_OFF
+                "\n");
         getchar();
     } else {
-        fprintf(stderr, ALERT_ON "[ Received error. Non-interactive session "
-                "does not allow for user feedback. Bailing out.]"
-                ALERT_OFF "\n");
+        fprintf(stderr, ALERT_ON
+                "[ Received error. Non-interactive session "
+                "does not allow for user feedback. Bailing out.]" ALERT_OFF
+                "\n");
         exit(1);
     }
 }
 
 // Check for case-insensitive prefix
 static bool hasPrefixIgnoreCase(std::string_view msg, std::string_view prefix) {
-    return (msg.length() >= prefix.length()
-            && strncasecmp(msg.data(), prefix.data(), prefix.length()) == 0);
+    return (msg.length() >= prefix.length() &&
+            strncasecmp(msg.data(), prefix.data(), prefix.length()) == 0);
 }
 
 // Read and classify response from machine. Currently, we expect a line with
@@ -167,55 +170,46 @@ static AckResponse ReadResponseLine(bool use_flow_control,
 }
 
 int main(int argc, char *argv[]) {
-    FILE *log_gcode = stderr;  // Write gcode debug stream here.
-    FILE *log_info = stderr;   // info log, can be switched off with -q
-
-    // Command line options.
-    bool use_ok_flow_control = true;   // if false, don't wait for 'ok' response
-    bool is_dry_run = false;           // if true, don't actually send anything
-    int block_buffer_count = 1;           // Number of blocks sent at once.
-    bool remove_semicolon_comments = true;
-    int initial_squash_chatter_ms = 300;  // Time for initial chatter to finish
+    // -- Command line options.
+    bool is_dry_run = false;                // Don't send anything if enabled.
+    bool use_ok_flow_control = true;        // wait for 'ok' response
+    int block_buffer_count = 1;             // Number of blocks sent at once.
+    bool remove_semicolon_comments = true;  // Not all machines understand them
+    int initial_squash_chatter_ms = 300;    // Start after start machine prompt.
 
     bool print_communication = true;     // print line+block to $log_gcode
-    bool print_unusual_messages = true;  // messages not expected from handshake
+    bool print_unusual_messages = true;  // messages outside handshake
 
     // No cli options yet.
-    size_t buffer_size = (1 << 20);       // Input buffer in bytes.
+    size_t buffer_size = (1 << 20);  // Input buffer in bytes.
+    FILE *log_gcode = stderr;        // Write gcode communication log here.
+    FILE *log_info = stderr;         // info log, can be switched off with -q
 
     int opt;
     while ((opt = getopt(argc, argv, "b:cFhnqs:")) != -1) {
         switch (opt) {
-        case 'n':
-            is_dry_run = true;
-            break;
+        case 'n': is_dry_run = true; break;
         case 'q':
             log_info = nullptr;
             // unusual messages squashed if -q multiple times
             print_unusual_messages = print_communication;
             print_communication = false;  // Make separate option ?
             break;
-        case 'F':
-            use_ok_flow_control = false;
-            break;
+        case 'F': use_ok_flow_control = false; break;
         case 'b':
             block_buffer_count = atoi(optarg);
             if (block_buffer_count < 1)
                 return usage(argv[0], "Invalid block buffer\n");
             break;
-        case 'c':
-            remove_semicolon_comments = false;
-            break;
+        case 'c': remove_semicolon_comments = false; break;
         case 's':
             initial_squash_chatter_ms = atoi(optarg);
             if (initial_squash_chatter_ms < 0) {
                 return usage(argv[0], "Invalid startup squash timeout\n");
             }
             break;
-        case 'h':
-            return usage(argv[0], "");
-        default:
-            return usage(argv[0], "Invalid option\n");
+        case 'h': return usage(argv[0], "");
+        default: return usage(argv[0], "Invalid option\n");
         }
     }
 
@@ -225,18 +219,18 @@ int main(int argc, char *argv[]) {
 
     // Input: Open GCode file
     const char *const filename = argv[optind];
-    int input_fd = (filename == std::string("-"))
-        ? STDIN_FILENO
-        : open(filename, O_RDONLY);
+    const int input_fd = (filename == std::string("-"))
+                             ? STDIN_FILENO
+                             : open(filename, O_RDONLY);
     if (input_fd < 0) {
         fprintf(stderr, "Can't open input %s: %s\n", filename, strerror(errno));
         return 1;
     }
 
     // Output: open machine connection.
-    const char *const connect_str = (optind < argc-1)
-        ? argv[optind+1]
-        : "/dev/ttyACM0,b115200";
+    const char *const connect_str = (optind < argc - 1)  // destination as arg
+                                        ? argv[optind + 1]
+                                        : "/dev/ttyACM0,b115200";
     is_dry_run |= (strcmp(connect_str, "/dev/null") == 0);
 
     int machine_fd = -1;
@@ -265,7 +259,7 @@ int main(int argc, char *argv[]) {
 
     BufferedLineReader gcode_reader(input_fd, buffer_size,
                                     remove_semicolon_comments);
-    BufferedLineReader flow_control_input(machine_fd, (1<<16), false);
+    BufferedLineReader flow_control_input(machine_fd, (1 << 16), false);
     char *scratch_buffer = new char[buffer_size];
     int line_no = 0;
     const int64_t start_time = get_time_ms();
@@ -291,21 +285,20 @@ int main(int argc, char *argv[]) {
             do {
                 std::string_view print_msg;
                 response = ReadResponseLine(use_ok_flow_control,
-                                            flow_control_input,
-                                            &print_msg);
+                                            flow_control_input, &print_msg);
 
                 // Now we know enough if we should print the original
                 // request. Whenever there is some unusual stuff going on, we
                 // want to print the original message first before the response.
-                const bool needs_printing = (
-                    print_communication ||
-                    response == AckResponse::kError ||
-                    (print_unusual_messages && response != AckResponse::kOk));
+                const bool needs_printing =
+                    (print_communication ||              // regular chatter
+                     response == AckResponse::kError ||  // always print error
+                     (print_unusual_messages && response != AckResponse::kOk));
 
                 if (needs_printing) {
                     if (!request_line_already_printed) {
                         fprintf(log_gcode, "%6d\t%.*s ", line_no,
-                               (int)request.size() - 1, request.data());
+                                (int)request.size() - 1, request.data());
                         request_line_already_printed = true;
                     }
                     if (response == AckResponse::kOk) {
@@ -341,7 +334,8 @@ int main(int argc, char *argv[]) {
 
     if (log_info) {
         const int64_t duration = get_time_ms() - start_time;
-        fprintf(log_info, "Sent total of %d non-empty lines in "
+        fprintf(log_info,
+                "Sent total of %d non-empty lines in "
                 "%" PRId64 ".%03" PRId64 "s\n",
                 line_no, duration / 1000, duration % 1000);
     }
