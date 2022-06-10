@@ -32,20 +32,25 @@ Options:
 <gcode-file> is either a filename or '-' for stdin
 
 
-<connection-string> is either a path to a tty device or host:port
+<connection-string> is either a path to a tty device, a host:port or '-'
  * Serial connection
    A path to the device name with an optional bit-rate
    separated with a comma.
    Examples of valid connection strings:
         /dev/ttyACM0
         /dev/ttyACM0,b115200
-  notice the 'b' prefix for the bit-rate.
-  Available bit-rates are one of [b9600, b19200, b38400, b57600, b115200, b230400, b460800]
+   notice the 'b' prefix for the bit-rate.
+   Available bit-rates are one of [b9600, b19200, b38400, b57600, b115200, b230400, b460800]
 
  * TCP connection
    For devices that receive gcode via tcp (e.g. http://beagleg.org/)
    you specify the connection string as host:port. Example:
         localhost:4444
+
+ * stdin/stdout
+   For a simple communication writing to the machine to stdout
+   and read responses from stdin, use '-'
+   This is useful for debugging or wiring up using e.g. socat.
 
 Examples:
 gcode-cli file.gcode /dev/ttyACM0,b115200

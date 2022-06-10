@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -25,32 +26,6 @@
 
 #define EXTRA_MESSAGE_ON  "\033[7m"
 #define EXTRA_MESSAGE_OFF "\033[0m"
-
-// Write buffer to fd.
-static bool reliable_write(int fd, const char *buffer, int len) {
-    while (len) {
-        int w = write(fd, buffer, len);
-        if (w < 0) return false;
-        len -= w;
-        buffer += w;
-    }
-    return true;
-}
-
-// Write the sequence of string-views to file-descriptor.
-// Needs "scratch_buffer" to be large enough to contain all of them.
-static bool write_blocks(int fd, char *scratch_buffer,
-                         const std::vector<std::string_view> &blocks) {
-    // Note: not using writev(), as snippets can be a lot and writev() has a
-    // bunch of limitations (e.g. UIO_MAXIOV == 1024). Thus simply
-    // reassmbling into buffer.
-    char *pos = scratch_buffer;
-    for (auto block : blocks) {
-        memcpy(pos, block.data(), block.size());
-        pos += block.size();
-    }
-    return reliable_write(fd, scratch_buffer, pos - scratch_buffer);
-}
 
 static int64_t get_time_ms() {
     struct timeval tv;
@@ -81,22 +56,26 @@ static int usage(const char *progname, const char *message) {
             "\n"
             "<gcode-file> is either a filename or '-' for stdin\n"
             "\n"
-            "\n<connection-string> is either a path to a tty device or "
-            "host:port\n"
+            "\n<connection-string> is either a path to a tty device, a "
+            "host:port or '-'\n"
             " * Serial connection\n"
             "   A path to the device name with an optional bit-rate\n"
             "   separated with a comma.\n"
             "   Examples of valid connection strings:\n"
             "   \t/dev/ttyACM0\n"
             "   \t/dev/ttyACM0,b115200\n"
-            "  notice the 'b' prefix for the bit-rate.\n"
-            "  Available bit-rates are one of [b9600, b19200, b38400, b57600, "
+            "   notice the 'b' prefix for the bit-rate.\n"
+            "   Available bit-rates are one of [b9600, b19200, b38400, b57600, "
             "b115200, b230400, b460800]\n\n"
             " * TCP connection\n"
             "   For devices that receive gcode via tcp "
             "(e.g. http://beagleg.org/)\n"
             "   you specify the connection string as host:port. Example:\n"
-            "   \tlocalhost:4444\n",
+            "   \tlocalhost:4444\n\n"
+            " * stdin/stdout\n"
+            "   For a simple communication writing to the machine to stdout\n"
+            "   and read responses from stdin, use '-'\n"
+            "   This is useful for debugging or wiring up using e.g. socat.\n",
             message, progname);
 
     fprintf(stderr,
@@ -136,14 +115,14 @@ static bool hasPrefixIgnoreCase(std::string_view msg, std::string_view prefix) {
 // current temperature values.
 enum class AckResponse { kOk, kError, kMessage };
 static AckResponse ReadResponseLine(bool use_flow_control,
-                                    BufferedLineReader &flow_input,
+                                    MachineConnection *machine,
                                     std::string_view *return_message) {
     if (!use_flow_control) {
         return AckResponse::kOk;  // Don't read, always assume 'ok'.
     }
 
-    const std::string_view ack_msg = flow_input.ReadLine();
-    if (flow_input.is_eof()) {
+    const std::string_view ack_msg = machine->ResponseLines().ReadLine();
+    if (machine->ResponseLines().is_eof()) {
         *return_message = "Nothing received from machine: Connection closed";
         return AckResponse::kError;
     }
@@ -233,10 +212,10 @@ int main(int argc, char *argv[]) {
                                         : "/dev/ttyACM0,b115200";
     is_dry_run |= (strcmp(connect_str, "/dev/null") == 0);
 
-    int machine_fd = -1;
+    std::unique_ptr<MachineConnection> machine;
     if (!is_dry_run) {
-        machine_fd = OpenMachineConnection(connect_str);
-        if (machine_fd < 0) {
+        machine.reset(MachineConnection::Open(connect_str));
+        if (!machine) {
             fprintf(stderr, "Failed to connect to machine %s\n", connect_str);
             return 1;
         }
@@ -248,8 +227,8 @@ int main(int argc, char *argv[]) {
     // If there is some initial chatter, ignore it, until there is some time
     // silence on the wire. That way, we only get OK responses to our requests.
     if (use_ok_flow_control) {
-        DiscardPendingInput(machine_fd, initial_squash_chatter_ms,
-                            print_communication);
+        machine->DiscardPendingInput(initial_squash_chatter_ms,
+                                     print_communication ? log_gcode : nullptr);
     }
 
     if (log_info) {
@@ -259,7 +238,6 @@ int main(int argc, char *argv[]) {
 
     BufferedLineReader gcode_reader(input_fd, buffer_size,
                                     remove_semicolon_comments);
-    BufferedLineReader flow_control_input(machine_fd, (1 << 16), false);
     char *scratch_buffer = new char[buffer_size];
     int line_no = 0;
     const int64_t start_time = get_time_ms();
@@ -267,7 +245,7 @@ int main(int argc, char *argv[]) {
         const auto lines = gcode_reader.ReadNextLines(block_buffer_count);
 
         // Send all block_buffer_count blocks at once.
-        if (!is_dry_run && !write_blocks(machine_fd, scratch_buffer, lines)) {
+        if (!is_dry_run && !machine->WriteBlocks(scratch_buffer, lines)) {
             fprintf(stderr, "Couldn't write!\n");
             return 1;
         }
@@ -285,7 +263,7 @@ int main(int argc, char *argv[]) {
             do {
                 std::string_view print_msg;
                 response = ReadResponseLine(use_ok_flow_control,
-                                            flow_control_input, &print_msg);
+                                            machine.get(), &print_msg);
 
                 // Now we know enough if we should print the original
                 // request. Whenever there is some unusual stuff going on, we
@@ -325,11 +303,11 @@ int main(int argc, char *argv[]) {
     if (!is_dry_run) {
         if (log_info)
             fprintf(log_info, "Discarding remaining machine responses.\n");
-        DiscardPendingInput(machine_fd, initial_squash_chatter_ms,
-                            print_unusual_messages);
+        machine->DiscardPendingInput(
+            initial_squash_chatter_ms,
+            print_unusual_messages ? log_gcode : nullptr);
     }
 
-    close(machine_fd);
     close(input_fd);
 
     if (log_info) {

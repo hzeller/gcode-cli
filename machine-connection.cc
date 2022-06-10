@@ -2,6 +2,8 @@
  * (c) h.zeller@acm.org. Free Software. GNU Public License v3.0 and above
  */
 
+#include "machine-connection.h"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -184,27 +186,68 @@ static int OpenTTY(const char *descriptor) {
     return fd;
 }
 
-int OpenMachineConnection(const char *descriptor) {
-    if (descriptor == nullptr) return -1;
-    int fd = OpenTTY(descriptor);
-    if (fd >= 0) return fd;
-    return OpenTCPSocket(descriptor);
+MachineConnection::MachineConnection(int to_machine, int from_machine)
+    : output_fd_(to_machine),
+      input_fd_(from_machine),
+      reader_(input_fd_, (1 << 16), false) {}
+
+MachineConnection::~MachineConnection() { close(output_fd_); }
+
+MachineConnection *MachineConnection::Open(const char *descriptor) {
+    if (descriptor == nullptr) return nullptr;
+    if (strcmp(descriptor, "-") == 0) {
+        return new MachineConnection(STDOUT_FILENO, STDIN_FILENO);
+    }
+    if (int fd = OpenTTY(descriptor); fd >= 0) {
+        return new MachineConnection(fd, fd);
+    }
+    if (int fd = OpenTCPSocket(descriptor); fd >= 0) {
+        return new MachineConnection(fd, fd);
+    }
+    return nullptr;
 }
 
-int DiscardPendingInput(int fd, int timeout_ms, bool echo_received_data) {
-    if (fd < 0) return 0;
+int MachineConnection::DiscardPendingInput(int timeout_ms,
+                                           FILE *echo_discarded) {
+    if (input_fd_ < 0) return 0;
     int total_bytes = 0;
     char buf[128];
-    while (AwaitReadReady(fd, timeout_ms) > 0) {
-        int r = read(fd, buf, sizeof(buf));
+    while (AwaitReadReady(input_fd_, timeout_ms) > 0) {
+        int r = read(input_fd_, buf, sizeof(buf));
         if (r < 0) {
             perror("reading trouble");
             return -1;
         }
         total_bytes += r;
-        if (r > 0 && echo_received_data) {
-            write(STDERR_FILENO, buf, r);
+        if (r > 0 && echo_discarded) {
+            fwrite(buf, r, 1, echo_discarded);
         }
     }
     return total_bytes;
+}
+
+// Write buffer to fd.
+static bool reliable_write(int fd, const char *buffer, int len) {
+    while (len) {
+        int w = write(fd, buffer, len);
+        if (w < 0) return false;
+        len -= w;
+        buffer += w;
+    }
+    return true;
+}
+
+// Write the sequence of string-views to file-descriptor.
+// Needs "scratch_buffer" to be large enough to contain all of them.
+bool MachineConnection::WriteBlocks(
+    char *scratch_buffer, const std::vector<std::string_view> &blocks) {
+    // Note: not using writev(), as snippets can be a lot and writev() has a
+    // bunch of limitations (e.g. UIO_MAXIOV == 1024). Thus simply
+    // reassmbling into buffer.
+    char *pos = scratch_buffer;
+    for (auto block : blocks) {
+        memcpy(pos, block.data(), block.size());
+        pos += block.size();
+    }
+    return reliable_write(output_fd_, scratch_buffer, pos - scratch_buffer);
 }
