@@ -11,32 +11,41 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/uio.h>
-#include <termios.h>
 #include <unistd.h>
 
 #include <string>
 
+#ifdef USE_TERMIOS
+#  include <termios.h>
+#else
+#  include <asm/termbits.h>
+#  include <sys/ioctl.h>
+#endif
+
 static bool SetTTYParams(int fd, const char *params) {
+    int speed_number = 115200;
+    if (params[0] == 'b' || params[0] == 'B')
+        params = params + 1;
+    if (*params)
+        speed_number = atoi(params);
+
+#ifdef USE_TERMIOS
     speed_t speed = B115200;
-    if (params[0] == 'b' || params[0] == 'B') params = params + 1;
-    if (*params) {
-        int speed_number = atoi(params);
-        switch (speed_number) {
-        case 9600: speed = B9600; break;
-        case 19200: speed = B19200; break;
-        case 38400: speed = B38400; break;
-        case 57600: speed = B57600; break;
-        case 115200: speed = B115200; break;
-        case 230400: speed = B230400; break;
-        case 460800: speed = B460800; break;
-        default:
-            fprintf(stderr,
-                    "Invalid speed '%s'; valid speeds are "
-                    "[9600, 19200, 38400, 57600, 115200, 230400, 460800]\n",
-                    params);
-            return false;
-            break;
-        }
+    switch (speed_number) {
+    case 9600: speed = B9600; break;
+    case 19200: speed = B19200; break;
+    case 38400: speed = B38400; break;
+    case 57600: speed = B57600; break;
+    case 115200: speed = B115200; break;
+    case 230400: speed = B230400; break;
+    case 460800: speed = B460800; break;
+    default:
+        fprintf(stderr,
+                "Invalid speed '%s'; valid speeds are "
+                "[9600, 19200, 38400, 57600, 115200, 230400, 460800]\n",
+                params);
+        return false;
+        break;
     }
 
     struct termios tty;
@@ -47,6 +56,23 @@ static bool SetTTYParams(int fd, const char *params) {
 
     cfsetospeed(&tty, speed);
     cfsetispeed(&tty, speed);
+#else
+    struct termios2 tty;
+    if (ioctl(fd, TCGETS2, &tty)) {
+        perror("ioctl(TCGETS2) failed. Is this a tty ?");
+        return false;
+    }
+
+    /* Clear the current output baud rate and fill a new value */
+    tty.c_cflag &= ~CBAUD;
+    tty.c_cflag |= BOTHER;
+    tty.c_ospeed = speed_number;
+
+    /* Clear the current input baud rate and fill a new value */
+    tty.c_cflag &= ~(CBAUD << IBSHIFT);
+    tty.c_cflag |= BOTHER << IBSHIFT;
+    tty.c_ispeed = speed_number;
+#endif
 
     tty.c_cflag |= (CLOCAL | CREAD);  // no modem controls
     tty.c_cflag &= ~CSIZE;            // Reset size as we want to choose ..
@@ -64,10 +90,17 @@ static bool SetTTYParams(int fd, const char *params) {
     tty.c_cc[VMIN] = 1;
     tty.c_cc[VTIME] = 1;
 
+#ifdef USE_TERMIOS
     if (tcsetattr(fd, TCSANOW, &tty) != 0) {
         printf("Error from tcsetattr: %s\n", strerror(errno));
         return false;
     }
+#else
+    if (ioctl(fd, TCSETS2, &tty)) {
+        printf("ioctl(TCSETS2) failed: %s\n", strerror(errno));
+        return false;
+    }
+#endif
     return true;
 }
 
