@@ -39,8 +39,7 @@ Options:
    Examples of valid connection strings:
         /dev/ttyACM0
         /dev/ttyACM0,b115200
-   notice the 'b' prefix for the bit-rate.
-   Available bit-rates are one of [b9600, b19200, b38400, b57600, b115200, b230400, b460800]
+   notice the 'b' prefix for the bit-rate. (allowed any supported by system)
 
  * TCP connection
    For devices that receive gcode via tcp (e.g. http://beagleg.org/)

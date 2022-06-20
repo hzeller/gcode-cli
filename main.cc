@@ -64,9 +64,13 @@ static int usage(const char *progname, const char *message) {
             "   Examples of valid connection strings:\n"
             "   \t/dev/ttyACM0\n"
             "   \t/dev/ttyACM0,b115200\n"
-            "   notice the 'b' prefix for the bit-rate.\n"
-            "   Available bit-rates are one of [b9600, b19200, b38400, b57600, "
-            "b115200, b230400, b460800]\n\n"
+            "   notice the 'b' prefix for the bit-rate."
+#ifdef USE_TERMIOS
+            "\n   Available bit-rates are one of [b9600, b19200, b38400, "
+            "b57600, b115200, b230400, b460800]\n\n"
+#else
+            " (allowed any supported by system)\n\n"
+#endif
             " * TCP connection\n"
             "   For devices that receive gcode via tcp "
             "(e.g. http://beagleg.org/)\n"
@@ -262,8 +266,8 @@ int main(int argc, char *argv[]) {
             AckResponse response;
             do {
                 std::string_view print_msg;
-                response = ReadResponseLine(use_ok_flow_control,
-                                            machine.get(), &print_msg);
+                response = ReadResponseLine(use_ok_flow_control, machine.get(),
+                                            &print_msg);
 
                 // Now we know enough if we should print the original
                 // request. Whenever there is some unusual stuff going on, we

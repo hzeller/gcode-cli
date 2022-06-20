@@ -18,18 +18,16 @@
 #include <string>
 
 #ifdef USE_TERMIOS
-#  include <termios.h>
+#    include <termios.h>
 #else
-#  include <asm/termbits.h>
-#  include <sys/ioctl.h>
+#    include <asm/termbits.h>
+#    include <sys/ioctl.h>
 #endif
 
 static bool SetTTYParams(int fd, const char *params) {
     int speed_number = 115200;
-    if (params[0] == 'b' || params[0] == 'B')
-        params = params + 1;
-    if (*params)
-        speed_number = atoi(params);
+    if (params[0] == 'b' || params[0] == 'B') params = params + 1;
+    if (*params) speed_number = atoi(params);
 
 #ifdef USE_TERMIOS
     speed_t speed = B115200;

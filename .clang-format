@@ -10,3 +10,4 @@ AllowShortCaseLabelsOnASingleLine: true
 AlignConsecutiveBitFields: true
 AlignConsecutiveMacros: true
 IndentCaseLabels: false
+IndentPPDirectives: AfterHash
