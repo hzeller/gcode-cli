@@ -21,12 +21,6 @@
 #include "buffered-line-reader.h"
 #include "machine-connection.h"
 
-#define ALERT_ON  "\033[41m\033[30m"
-#define ALERT_OFF "\033[0m"
-
-#define EXTRA_MESSAGE_ON  "\033[7m"
-#define EXTRA_MESSAGE_OFF "\033[0m"
-
 static int64_t get_time_ms() {
     struct timeval tv;
     gettimeofday(&tv, nullptr);
@@ -98,15 +92,18 @@ static int usage(const char *progname, const char *message) {
 // Very crude error handling 'ui'. If this is an interactive session we can ask
 // the user to decide.
 static void handle_error_or_exit() {
+#define ALERT_ON  "\033[41m\033[30m"
+#define ALERT_OFF "\033[0m"
+
     if (isatty(STDIN_FILENO)) {  // interactive.
         fprintf(stderr, ALERT_ON
                 "[ Didn't get OK. Continue: ENTER; stop: CTRL-C ]" ALERT_OFF
                 "\n");
         getchar();
     } else {
-        fprintf(stderr, ALERT_ON
+        fprintf(stderr,
                 "[ Received error. Non-interactive session "
-                "does not allow for user feedback. Bailing out.]" ALERT_OFF
+                "does not allow for user feedback. Bailing out.]"
                 "\n");
         exit(1);
     }
@@ -173,6 +170,12 @@ int main(int argc, char *argv[]) {
     FILE *log_gcode = stderr;        // Write gcode communication log here.
     FILE *log_info = stderr;         // info log, can be switched off with -q
 
+    const char *EXTRA_MESSAGE_ON  = "\033[7m";
+    const char *EXTRA_MESSAGE_OFF = "\033[0m";
+    if (!isatty(STDERR_FILENO)) {
+        EXTRA_MESSAGE_ON = EXTRA_MESSAGE_OFF = "";
+    }
+
     int opt;
     while ((opt = getopt(argc, argv, "b:cFhnqs:")) != -1) {
         switch (opt) {
@@ -234,11 +237,12 @@ int main(int argc, char *argv[]) {
     use_ok_flow_control &= !is_dry_run;
 
     // If there is some initial chatter, ignore it, until there is some time
-    // silence on the wire. That way, we only get OK responses to our requests.
-    if (use_ok_flow_control) {
-        machine->DiscardPendingInput(initial_squash_chatter_ms,
-                                     print_communication ? log_gcode : nullptr);
-    }
+    // silence on the wire.
+    // That way, we only get OK responses to our requests.
+    // Even without OK flow control, we need to wait as machine might
+    // just reset on connect.
+    machine->DiscardPendingInput(initial_squash_chatter_ms,
+                                 print_communication ? log_gcode : nullptr);
 
     if (log_info) {
         fprintf(log_info, "\n---- Sending file '%s' to '%s'%s -----\n",
@@ -292,6 +296,10 @@ int main(int argc, char *argv[]) {
                         fprintf(log_gcode,
                                 use_ok_flow_control ? "<< OK\n" : "\n");
                     } else {
+                        while (!print_msg.empty() && isspace(
+                                   *(print_msg.end() - 1))) {
+                            print_msg.remove_suffix(1);
+                        }
                         fprintf(log_gcode, "\n%s%.*s%s", EXTRA_MESSAGE_ON,
                                 (int)print_msg.size(), print_msg.data(),
                                 EXTRA_MESSAGE_OFF);
@@ -304,6 +312,10 @@ int main(int argc, char *argv[]) {
                 }
             } while (response == AckResponse::kMessage);  // more to come
         }
+    }
+
+    if (log_info) {
+        fprintf(log_info, "\n---- Done sending file '%s' -----\n", filename);
     }
 
     // We don't really expect anything coming afterwards from the machine, but

@@ -170,8 +170,8 @@ static int AwaitReadReady(int fd, int timeout_millis) {
     FD_SET(fd, &read_fds);
 
     struct timeval tv;
-    tv.tv_sec = 0;
-    tv.tv_usec = timeout_millis * 1000;
+    tv.tv_sec = timeout_millis / 1000;
+    tv.tv_usec = (timeout_millis % 1000) * 1000;
 
     FD_SET(fd, &read_fds);
     int s = select(fd + 1, &read_fds, NULL, NULL, &tv);
