@@ -32,6 +32,10 @@ using tty_termios_t = struct termios2;
 #endif
 
 static bool SetTTYSpeed(tty_termios_t *tty, int speed_number) {
+    if (speed_number < 0) {
+        fprintf(stderr, "Invalid speed %d\n", speed_number);
+        return false;
+    }
 #ifdef USE_TERMIOS
     speed_t speed = B115200;
     switch (speed_number) {
@@ -44,9 +48,9 @@ static bool SetTTYSpeed(tty_termios_t *tty, int speed_number) {
     case 460800: speed = B460800; break;
     default:
         fprintf(stderr,
-                "Invalid speed '%s'; valid speeds are "
+                "Invalid speed '%d'; valid speeds are "
                 "[9600, 19200, 38400, 57600, 115200, 230400, 460800]\n",
-                params);
+                speed_number);
         return false;
         break;
     }
@@ -111,7 +115,8 @@ static bool SetTTYParams(int fd, std::string_view parameters) {
             int s;
             if (auto r = std::from_chars(param.begin()+1, param.end(), s);
                 r.ec == std::errc()) {
-                SetTTYSpeed(&tty, s);
+                if (!SetTTYSpeed(&tty, s))
+                    return false;
             }
             continue;
         }
