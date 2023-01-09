@@ -40,7 +40,7 @@ static int usage(const char *progname, const char *message) {
             "Options:\n"
             "\t-s <millis> : Wait this time for init "
             "chatter from machine to subside.\n"
-            "\t              Default: 300\n"
+            "\t              Default: 2500\n"
             "\t-b <count>  : Number of blocks sent out buffered before \n"
             "\t              checking the returning flow-control 'ok'.\n"
             "\t              Careful, low memory machines might drop data.\n"
@@ -67,10 +67,15 @@ static int usage(const char *progname, const char *message) {
             "   notice the 'b' prefix for the bit-rate."
 #ifdef USE_TERMIOS
             "\n   Available bit-rates are one of [b9600, b19200, b38400, "
-            "b57600, b115200, b230400, b460800]\n\n"
+            "b57600, b115200, b230400, b460800]\n"
 #else
-            " (allowed any supported by system)\n\n"
+            " (any value allowed supported by system)\n"
 #endif
+            "   \t/dev/ttyACM0,b115200,+crtscts\n"
+            "   Enable hardware flow control RTS/CTS handshaking.\n"
+            "   \t/dev/ttyACM0,b115200,-crtscts\n"
+            "   With a minus prefix, disable hardware flow control.\n"
+            "\n"
             " * TCP connection\n"
             "   For devices that receive gcode via tcp "
             "(e.g. http://beagleg.org/)\n"
@@ -158,7 +163,7 @@ int main(int argc, char *argv[]) {
     bool use_ok_flow_control = true;        // wait for 'ok' response
     int block_buffer_count = 1;             // Number of blocks sent at once.
     bool remove_semicolon_comments = true;  // Not all machines understand them
-    int initial_squash_chatter_ms = 300;    // Start after start machine prompt.
+    int initial_squash_chatter_ms = 2500;   // Start after start machine prompt.
 
     bool print_communication = true;     // print line+block to $log_gcode
     bool print_unusual_messages = true;  // messages outside handshake

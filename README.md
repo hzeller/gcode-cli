@@ -17,7 +17,7 @@ Usage:
 gcode-cli [options] <gcode-file> [<connection-string>]
 Options:
         -s <millis> : Wait this time for init chatter from machine to subside.
-                      Default: 300
+                      Default: 2500
         -b <count>  : Number of blocks sent out buffered before
                       checking the returning flow-control 'ok'.
                       Careful, low memory machines might drop data.
@@ -39,7 +39,11 @@ Options:
    Examples of valid connection strings:
         /dev/ttyACM0
         /dev/ttyACM0,b115200
-   notice the 'b' prefix for the bit-rate. (allowed any supported by system)
+   notice the 'b' prefix for the bit-rate. (any value allowed supported by system)
+        /dev/ttyACM0,b115200,+crtscts
+   Enable hardware flow control RTS/CTS handshaking.
+        /dev/ttyACM0,b115200,-crtscts
+   With a minus prefix, disable hardware flow control.
 
  * TCP connection
    For devices that receive gcode via tcp (e.g. http://beagleg.org/)

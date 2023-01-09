@@ -15,6 +15,7 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
+#include <charconv>
 #include <string>
 
 #ifdef USE_TERMIOS
@@ -24,11 +25,13 @@
 #    include <sys/ioctl.h>
 #endif
 
-static bool SetTTYParams(int fd, const char *params) {
-    int speed_number = 115200;
-    if (params[0] == 'b' || params[0] == 'B') params = params + 1;
-    if (*params) speed_number = atoi(params);
+#ifdef USE_TERMIOS
+using tty_termios_t = struct termios;
+#else
+using tty_termios_t = struct termios2;
+#endif
 
+static bool SetTTYSpeed(tty_termios_t *tty, int speed_number) {
 #ifdef USE_TERMIOS
     speed_t speed = B115200;
     switch (speed_number) {
@@ -48,32 +51,38 @@ static bool SetTTYParams(int fd, const char *params) {
         break;
     }
 
-    struct termios tty;
+    cfsetospeed(tty, speed);
+    cfsetispeed(tty, speed);
+#else
+    /* Clear the current output baud rate and fill a new value */
+    tty->c_cflag &= ~CBAUD;
+    tty->c_cflag |= BOTHER;
+    tty->c_ospeed = speed_number;
+
+    /* Clear the current input baud rate and fill a new value */
+    tty->c_cflag &= ~(CBAUD << IBSHIFT);
+    tty->c_cflag |= BOTHER << IBSHIFT;
+    tty->c_ispeed = speed_number;
+#endif
+    return true;
+}
+
+static bool SetTTYParams(int fd, std::string_view parameters) {
+    tty_termios_t tty;
+
+#ifdef USE_TERMIOS
     if (tcgetattr(fd, &tty) < 0) {
         perror("tcgetattr() failed. Is this a tty ?");
         return false;
     }
-
-    cfsetospeed(&tty, speed);
-    cfsetispeed(&tty, speed);
 #else
-    struct termios2 tty;
     if (ioctl(fd, TCGETS2, &tty)) {
         perror("ioctl(TCGETS2) failed. Is this a tty ?");
         return false;
     }
-
-    /* Clear the current output baud rate and fill a new value */
-    tty.c_cflag &= ~CBAUD;
-    tty.c_cflag |= BOTHER;
-    tty.c_ospeed = speed_number;
-
-    /* Clear the current input baud rate and fill a new value */
-    tty.c_cflag &= ~(CBAUD << IBSHIFT);
-    tty.c_cflag |= BOTHER << IBSHIFT;
-    tty.c_ispeed = speed_number;
 #endif
 
+    // Some generic settings, possibly overridden later
     tty.c_cflag |= (CLOCAL | CREAD);  // no modem controls
     tty.c_cflag &= ~CSIZE;            // Reset size as we want to choose ..
     tty.c_cflag |= CS8;               // 8 .. bits
@@ -81,7 +90,7 @@ static bool SetTTYParams(int fd, const char *params) {
     tty.c_cflag &= ~CSTOPB;           // 1
     tty.c_cflag &= ~CRTSCTS;          // No hardware flow-control
 
-    // terminal magic. Non-canonical mode
+    // Terminal magic. Non-canonical mode
     tty.c_iflag &=
         ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
     tty.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
@@ -89,6 +98,47 @@ static bool SetTTYParams(int fd, const char *params) {
 
     tty.c_cc[VMIN] = 1;
     tty.c_cc[VTIME] = 1;
+
+    SetTTYSpeed(&tty, 115200);
+    while (!parameters.empty()) {
+        const auto pos = parameters.find(',');
+        const auto part_len =
+            (pos != std::string_view::npos) ? pos + 1 : parameters.size();
+        std::string_view param = parameters.substr(0, part_len);
+        parameters.remove_prefix(part_len);
+
+        if (param[0] == 'b' || param[0] == 'B') {
+            int s;
+            if (auto r = std::from_chars(param.begin()+1, param.end(), s);
+                r.ec == std::errc()) {
+                SetTTYSpeed(&tty, s);
+            }
+            continue;
+        }
+
+        // Flags can be with optional positive or negative prefix.
+        bool flag_positive = true;
+        if (param[0] == '+') {
+            param = param.substr(1);
+        }
+        else if (param[0] == '-') {
+            flag_positive = false;
+            param = param.substr(1);
+        }
+
+        if (param == "crtscts") {
+            if (flag_positive) {
+                tty.c_cflag |= CRTSCTS;
+            } else {
+                tty.c_cflag &= ~CRTSCTS;
+            }
+        }
+        else {
+            fprintf(stderr, "Unknown option %.*s\n",
+                    (int)param.size(), param.data());
+            return false;
+        }
+    }
 
 #ifdef USE_TERMIOS
     if (tcsetattr(fd, TCSANOW, &tty) != 0) {
@@ -174,7 +224,7 @@ int OpenTCPSocket(const char *host) {
 static int OpenTTY(const char *descriptor) {
     const char *comma = strchrnul(descriptor, ',');
     const std::string path(descriptor, comma);
-    int fd = open(path.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
+    const int fd = open(path.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
     if (fd < 0) {
         return -1;
     }
@@ -196,10 +246,10 @@ MachineConnection *MachineConnection::Open(const char *descriptor) {
     if (strcmp(descriptor, "-") == 0) {
         return new MachineConnection(STDOUT_FILENO, STDIN_FILENO);
     }
-    if (int fd = OpenTTY(descriptor); fd >= 0) {
+    if (const int fd = OpenTTY(descriptor); fd >= 0) {
         return new MachineConnection(fd, fd);
     }
-    if (int fd = OpenTCPSocket(descriptor); fd >= 0) {
+    if (const int fd = OpenTCPSocket(descriptor); fd >= 0) {
         return new MachineConnection(fd, fd);
     }
     return nullptr;
