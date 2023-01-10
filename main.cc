@@ -241,8 +241,11 @@ int main(int argc, char *argv[]) {
     // That way, we only get OK responses to our requests.
     // Even without OK flow control, we need to wait as machine might
     // just reset on connect.
-    machine->DiscardPendingInput(initial_squash_chatter_ms,
-                                 print_communication ? log_gcode : nullptr);
+    if (machine) {
+        machine->DiscardPendingInput(
+            initial_squash_chatter_ms,
+            print_communication ? log_gcode : nullptr);
+    }
 
     if (log_info) {
         fprintf(log_info, "\n---- Sending file '%s' to '%s'%s -----\n",
