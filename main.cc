@@ -317,8 +317,10 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    const int64_t duration = get_time_ms() - start_time;
+
     if (log_info) {
-        fprintf(log_info, "\n---- Done sending file '%s' -----\n", filename);
+        fprintf(log_info, "---- Finished file '%s' -----\n", filename);
     }
 
     // We don't really expect anything coming afterwards from the machine, but
@@ -335,7 +337,6 @@ int main(int argc, char *argv[]) {
     close(input_fd);
 
     if (log_info) {
-        const int64_t duration = get_time_ms() - start_time;
         fprintf(log_info,
                 "Sent total of %d non-empty lines in "
                 "%" PRId64 ".%03" PRId64 "s\n",

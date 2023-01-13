@@ -92,7 +92,7 @@ static bool SetTTYParams(int fd, std::string_view parameters) {
     tty.c_cflag |= CS8;               // 8 .. bits
     tty.c_cflag &= ~PARENB;           // N
     tty.c_cflag &= ~CSTOPB;           // 1
-    tty.c_cflag &= ~CRTSCTS;          // No hardware flow-control
+    tty.c_cflag |= CRTSCTS;          // Hardware flow-control
 
     // Terminal magic. Non-canonical mode
     tty.c_iflag &=
