@@ -165,10 +165,10 @@ int main(int argc, char *argv[]) {
     bool print_communication = true;     // print line+block to $log_gcode
     bool print_unusual_messages = true;  // messages outside handshake
 
-    // No cli options yet.
-    size_t buffer_size = (1 << 20);  // Input buffer in bytes.
-    FILE *log_gcode = stderr;        // Write gcode communication log here.
-    FILE *log_info = stderr;         // info log, can be switched off with -q
+    // No cli options for the following yet. Make configurable ?
+    const size_t buffer_size = (1 << 20);  // Input buffer in bytes
+    FILE *const log_gcode = stderr;        // Log gcode communication here.
+    FILE *log_info = stderr;               // info log, switched off with -q
 
     const char *EXTRA_MESSAGE_ON  = "\033[7m";
     const char *EXTRA_MESSAGE_OFF = "\033[0m";
