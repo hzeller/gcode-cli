@@ -30,7 +30,7 @@ jobs:
           make -k
 
   BuildMac:
-    name: Install Dependencies and Build
+    name: Build Mac
     runs-on: macos-latest
     steps:
       - name: Get the Source

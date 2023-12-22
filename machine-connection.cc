@@ -49,7 +49,9 @@ static bool SetTTYSpeed(tty_termios_t *tty, int speed_number) {
     case 57600: speed = B57600; break;
     case 115200: speed = B115200; break;
     case 230400: speed = B230400; break;
+#ifdef B460800
     case 460800: speed = B460800; break;
+#endif
     default:
         fprintf(stderr,
                 "Invalid speed '%d'; valid speeds are "
@@ -227,14 +229,17 @@ int OpenTCPSocket(const char *host) {
     return fd;
 }
 
-static int OpenTTY(const char *descriptor) {
-    const char *comma = strchrnul(descriptor, ',');
-    const std::string path(descriptor, comma);
+static int OpenTTY(std::string_view descriptor) {
+    auto first_comma = descriptor.find(',');
+    const std::string path(descriptor.substr(0, first_comma));
+    const std::string_view tty_params =
+        (first_comma != std::string_view::npos)
+        ? descriptor.substr(first_comma + 1) : "";
     const int fd = open(path.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
     if (fd < 0) {
         return -1;
     }
-    if (!SetTTYParams(fd, *comma ? comma + 1 : "")) {
+    if (!SetTTYParams(fd, tty_params)) {
         return -1;
     }
     return fd;
