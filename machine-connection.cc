@@ -18,6 +18,10 @@
 #include <charconv>
 #include <string>
 
+#if defined(__APPLE__) && !defined(USE_TERMIOS)
+#    define USE_TERMIOS
+#endif
+
 #ifdef USE_TERMIOS
 #    include <termios.h>
 #else
