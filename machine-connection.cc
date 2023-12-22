@@ -18,6 +18,10 @@
 #include <charconv>
 #include <string>
 
+#if defined(__APPLE__) && !defined(USE_TERMIOS)
+#    define USE_TERMIOS
+#endif
+
 #ifdef USE_TERMIOS
 #    include <termios.h>
 #else
@@ -45,7 +49,9 @@ static bool SetTTYSpeed(tty_termios_t *tty, int speed_number) {
     case 57600: speed = B57600; break;
     case 115200: speed = B115200; break;
     case 230400: speed = B230400; break;
+#ifdef B460800
     case 460800: speed = B460800; break;
+#endif
     default:
         fprintf(stderr,
                 "Invalid speed '%d'; valid speeds are "
@@ -113,10 +119,9 @@ static bool SetTTYParams(int fd, std::string_view parameters) {
 
         if (param[0] == 'b' || param[0] == 'B') {
             int s;
-            if (auto r = std::from_chars(param.begin()+1, param.end(), s);
+            if (auto r = std::from_chars(param.begin() + 1, param.end(), s);
                 r.ec == std::errc()) {
-                if (!SetTTYSpeed(&tty, s))
-                    return false;
+                if (!SetTTYSpeed(&tty, s)) return false;
             }
             continue;
         }
@@ -125,8 +130,7 @@ static bool SetTTYParams(int fd, std::string_view parameters) {
         bool flag_positive = true;
         if (param[0] == '+') {
             param = param.substr(1);
-        }
-        else if (param[0] == '-') {
+        } else if (param[0] == '-') {
             flag_positive = false;
             param = param.substr(1);
         }
@@ -137,10 +141,9 @@ static bool SetTTYParams(int fd, std::string_view parameters) {
             } else {
                 tty.c_cflag &= ~CRTSCTS;
             }
-        }
-        else {
-            fprintf(stderr, "Unknown option %.*s\n",
-                    (int)param.size(), param.data());
+        } else {
+            fprintf(stderr, "Unknown option %.*s\n", (int)param.size(),
+                    param.data());
             return false;
         }
     }
@@ -226,14 +229,17 @@ int OpenTCPSocket(const char *host) {
     return fd;
 }
 
-static int OpenTTY(const char *descriptor) {
-    const char *comma = strchrnul(descriptor, ',');
-    const std::string path(descriptor, comma);
+static int OpenTTY(std::string_view descriptor) {
+    auto first_comma = descriptor.find(',');
+    const std::string path(descriptor.substr(0, first_comma));
+    const std::string_view tty_params =
+        (first_comma != std::string_view::npos)
+        ? descriptor.substr(first_comma + 1) : "";
     const int fd = open(path.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
     if (fd < 0) {
         return -1;
     }
-    if (!SetTTYParams(fd, *comma ? comma + 1 : "")) {
+    if (!SetTTYParams(fd, tty_params)) {
         return -1;
     }
     return fd;
