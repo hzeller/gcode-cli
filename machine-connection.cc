@@ -117,10 +117,9 @@ static bool SetTTYParams(int fd, std::string_view parameters) {
 
         if (param[0] == 'b' || param[0] == 'B') {
             int s;
-            if (auto r = std::from_chars(param.begin()+1, param.end(), s);
+            if (auto r = std::from_chars(param.begin() + 1, param.end(), s);
                 r.ec == std::errc()) {
-                if (!SetTTYSpeed(&tty, s))
-                    return false;
+                if (!SetTTYSpeed(&tty, s)) return false;
             }
             continue;
         }
@@ -129,8 +128,7 @@ static bool SetTTYParams(int fd, std::string_view parameters) {
         bool flag_positive = true;
         if (param[0] == '+') {
             param = param.substr(1);
-        }
-        else if (param[0] == '-') {
+        } else if (param[0] == '-') {
             flag_positive = false;
             param = param.substr(1);
         }
@@ -141,10 +139,9 @@ static bool SetTTYParams(int fd, std::string_view parameters) {
             } else {
                 tty.c_cflag &= ~CRTSCTS;
             }
-        }
-        else {
-            fprintf(stderr, "Unknown option %.*s\n",
-                    (int)param.size(), param.data());
+        } else {
+            fprintf(stderr, "Unknown option %.*s\n", (int)param.size(),
+                    param.data());
             return false;
         }
     }

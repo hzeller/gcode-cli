@@ -1,0 +1,41 @@
+name: CI
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  BuildLinux:
+    runs-on: ubuntu-20.04  # test slightly older ubuntu.
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+          - g++
+          - clang++
+
+    name: Build ${{matrix.compiler}}
+    steps:
+      - name: Get the Source
+        uses: actions/checkout@v3
+
+      - name: Configure shell
+        run: |
+          echo "CXX=${{ matrix.compiler }}" >> $GITHUB_ENV
+          echo "CXXFLAGS=-Werror" >> $GITHUB_ENV
+
+      - name: Build
+        run: |
+          make -k
+
+  BuildMac:
+    name: Install Dependencies and Build
+    runs-on: macos-latest
+    steps:
+      - name: Get the Source
+        uses: actions/checkout@v3
+
+      - name: Build
+        run: |
+          make -k

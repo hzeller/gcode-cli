@@ -170,7 +170,7 @@ int main(int argc, char *argv[]) {
     FILE *const log_gcode = stderr;        // Log gcode communication here.
     FILE *log_info = stderr;               // info log, switched off with -q
 
-    const char *EXTRA_MESSAGE_ON  = "\033[7m";
+    const char *EXTRA_MESSAGE_ON = "\033[7m";
     const char *EXTRA_MESSAGE_OFF = "\033[0m";
     if (!isatty(STDERR_FILENO)) {
         EXTRA_MESSAGE_ON = EXTRA_MESSAGE_OFF = "";
@@ -242,9 +242,8 @@ int main(int argc, char *argv[]) {
     // Even without OK flow control, we need to wait as machine might
     // just reset on connect.
     if (machine) {
-        machine->DiscardPendingInput(
-            initial_squash_chatter_ms,
-            print_communication ? log_gcode : nullptr);
+        machine->DiscardPendingInput(initial_squash_chatter_ms,
+                                     print_communication ? log_gcode : nullptr);
     }
 
     if (log_info) {
@@ -299,8 +298,8 @@ int main(int argc, char *argv[]) {
                         fprintf(log_gcode,
                                 use_ok_flow_control ? "<< OK\n" : "\n");
                     } else {
-                        while (!print_msg.empty() && isspace(
-                                   *(print_msg.end() - 1))) {
+                        while (!print_msg.empty() &&
+                               isspace(*(print_msg.end() - 1))) {
                             print_msg.remove_suffix(1);
                         }
                         fprintf(log_gcode, "\n%s%.*s%s", EXTRA_MESSAGE_ON,
