@@ -73,16 +73,21 @@ Options:
 
 <connection-string> is either a path to a tty device, a host:port or '-'
  * Serial connection
-   A path to the device name with an optional bit-rate
-   separated with a comma.
+   A path to the device name with an optional bit-rate and flow
+   control settings separated by comma.
+
+   If no device parameters given, default is 'b115200,+crtscts'
+
    Examples of valid connection strings:
         /dev/ttyACM0
         /dev/ttyACM0,b115200
-   notice the 'b' prefix for the bit-rate. (any value allowed supported by system)
+   notice the 'b' prefix for the bit-rate (any value allowed supported by system).
+
+  Serial Flow Control
+   A +crtscts enables hardware flow control RTS/CTS handshaking:
         /dev/ttyACM0,b115200,+crtscts
-   Enable hardware flow control RTS/CTS handshaking.
+   With a minus prefix, disable hardware flow control:
         /dev/ttyACM0,b115200,-crtscts
-   With a minus prefix, disable hardware flow control.
 
  * TCP connection
    For devices that receive gcode via tcp (e.g. http://beagleg.org/)
