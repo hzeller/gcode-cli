@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -19,6 +20,10 @@
 #include <map>
 #include <string>
 
+#if defined(__APPLE__)
+#include <IOKit/serial/ioss.h>
+#endif
+
 #if defined(__APPLE__) && !defined(USE_TERMIOS)
 #define USE_TERMIOS
 #endif
@@ -27,7 +32,6 @@
 #include <termios.h>
 #else
 #include <asm/termbits.h>
-#include <sys/ioctl.h>
 #endif
 
 #ifdef USE_TERMIOS
@@ -41,7 +45,17 @@ using tty_termios_t = struct termios2;
 static std::map<int, speed_t> AvailableTTYSpeeds();
 #endif
 
-static bool SetTTYSpeed(tty_termios_t *tty, int speed_number) {
+bool MaybeAppleSpecificFallback(int fd, int bps) {
+#ifdef IOSSIOSPEED
+    // Apple has a specific ioctl to set arbitrary speed.
+    speed_t speed = bps;
+    return ioctl(fd, IOSSIOSPEED, &speed) == 0;
+#else
+    return false;
+#endif
+}
+
+static bool SetTTYSpeed(int fd, tty_termios_t *tty, int speed_number) {
     if (speed_number < 0) {
         fprintf(stderr, "Invalid speed %d\n", speed_number);
         return false;
@@ -51,6 +65,9 @@ static bool SetTTYSpeed(tty_termios_t *tty, int speed_number) {
     const std::map<int, speed_t> selectable_speeds = AvailableTTYSpeeds();
     const auto found = selectable_speeds.find(speed_number);
     if (found == selectable_speeds.end()) {
+        if (MaybeAppleSpecificFallback(fd, speed_number)) {
+            return true;  // averted :)
+        }
         fprintf(stderr, "Invalid speed '%d'; valid speeds are [", speed_number);
         const char *sep = "";
         for (const auto &[speed, _] : selectable_speeds) {
@@ -114,7 +131,7 @@ static bool SetTTYParams(int fd, std::string_view parameters) {
     tty.c_cc[VMIN] = 1;
     tty.c_cc[VTIME] = 1;
 
-    SetTTYSpeed(&tty, 115200);
+    SetTTYSpeed(fd, &tty, 115200);
     while (!parameters.empty()) {
         const auto pos = parameters.find(',');
         const auto part_len =
@@ -126,7 +143,7 @@ static bool SetTTYParams(int fd, std::string_view parameters) {
             int s;
             if (auto r = std::from_chars(param.begin() + 1, param.end(), s);
                 r.ec == std::errc()) {
-                if (!SetTTYSpeed(&tty, s)) return false;
+                if (!SetTTYSpeed(fd, &tty, s)) return false;
             }
             continue;
         }
