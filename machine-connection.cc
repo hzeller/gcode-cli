@@ -15,6 +15,7 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
+#include <map>
 #include <charconv>
 #include <string>
 
@@ -35,6 +36,11 @@ using tty_termios_t = struct termios;
 using tty_termios_t = struct termios2;
 #endif
 
+#ifdef USE_TERMIOS
+// With termios, there is only a distinct set of available speeds.
+static std::map<int, speed_t> AvailableTTYSpeeds();
+#endif
+
 static bool SetTTYSpeed(tty_termios_t *tty, int speed_number) {
     if (speed_number < 0) {
         fprintf(stderr, "Invalid speed %d\n", speed_number);
@@ -42,27 +48,25 @@ static bool SetTTYSpeed(tty_termios_t *tty, int speed_number) {
     }
 #ifdef USE_TERMIOS
     speed_t speed = B115200;
-    switch (speed_number) {
-    case 9600: speed = B9600; break;
-    case 19200: speed = B19200; break;
-    case 38400: speed = B38400; break;
-    case 57600: speed = B57600; break;
-    case 115200: speed = B115200; break;
-    case 230400: speed = B230400; break;
-#ifdef B460800
-    case 460800: speed = B460800; break;
-#endif
-    default:
-        fprintf(stderr,
-                "Invalid speed '%d'; valid speeds are "
-                "[9600, 19200, 38400, 57600, 115200, 230400, 460800]\n",
-                speed_number);
+    const std::map<int, speed_t> selectable_speeds = AvailableTTYSpeeds();
+    const auto found = selectable_speeds.find(speed_number);
+    if (found == selectable_speeds.end()) {
+        fprintf(stderr, "Invalid speed '%d'; valid speeds are [", speed_number);
+        const char *sep = "";
+        for (const auto &[speed, _] : selectable_speeds) {
+            fprintf(stderr, "%s%d", sep, speed);
+            sep = ", ";
+        }
+        fprintf(stderr, "]\n");
         return false;
-        break;
     }
-
-    cfsetospeed(tty, speed);
-    cfsetispeed(tty, speed);
+    speed = found->second;
+    if (cfsetospeed(tty, speed) < 0 || cfsetispeed(tty, speed) < 0) {
+        fprintf(stderr, "While attempting to set speed to %d bps\n",
+                speed_number);
+        perror("Issue while setting tty-speed");
+        return false;
+    }
 #else
     /* Clear the current output baud rate and fill a new value */
     tty->c_cflag &= ~CBAUD;
@@ -74,6 +78,7 @@ static bool SetTTYSpeed(tty_termios_t *tty, int speed_number) {
     tty->c_cflag |= BOTHER << IBSHIFT;
     tty->c_ispeed = speed_number;
 #endif
+
     return true;
 }
 
@@ -310,3 +315,97 @@ bool MachineConnection::WriteBlocks(
     }
     return reliable_write(output_fd_, scratch_buffer, pos - scratch_buffer);
 }
+
+#ifdef USE_TERMIOS
+// Termios specifies speeds with macros and there is no easy way to figure
+// out which exist, and if the speed_t is actually just the number itself, as
+// this is hidden in the API abstraction.
+// This builds a map of available speeds to the corresponding Bxxx constant.
+static std::map<int, speed_t> AvailableTTYSpeeds() {
+    std::map<int, speed_t> result;
+    // The following are from the manpage. There are more at the lower end,
+    // but they are not really used these days.
+#ifdef B1200
+   result[1200] = B1200;
+#endif
+#ifdef B1800
+   result[1800] = B1800;
+#endif
+#ifdef B2400
+   result[2400] = B2400;
+#endif
+#ifdef B4800
+   result[4800] = B4800;
+#endif
+#ifdef B9600
+   result[9600] = B9600;
+#endif
+#ifdef B19200
+   result[19200] = B19200;
+#endif
+#ifdef B38400
+   result[38400] = B38400;
+#endif
+#ifdef B57600
+   result[57600] = B57600;
+#endif
+#ifdef B76800
+   result[76800] = B76800;
+#endif
+#ifdef B115200
+   result[115200] = B115200;
+#endif
+#ifdef B153600
+   result[153600] = B153600;
+#endif
+#ifdef B230400
+   result[230400] = B230400;
+#endif
+#ifdef B250000
+   result[250000] = B250000;
+#endif
+#ifdef B307200
+   result[307200] = B307200;
+#endif
+#ifdef B460800
+   result[460800] = B460800;
+#endif
+#ifdef B500000
+   result[500000] = B500000;
+#endif
+#ifdef B576000
+   result[576000] = B576000;
+#endif
+#ifdef B614400
+   result[614400] = B614400;
+#endif
+#ifdef B921600
+   result[921600] = B921600;
+#endif
+#ifdef B1000000
+   result[1000000] = B1000000;
+#endif
+#ifdef B1152000
+   result[1152000] = B1152000;
+#endif
+#ifdef B1500000
+   result[1500000] = B1500000;
+#endif
+#ifdef B2000000
+   result[2000000] = B2000000;
+#endif
+#ifdef B2500000
+   result[2500000] = B2500000;
+#endif
+#ifdef B3000000
+   result[3000000] = B3000000;
+#endif
+#ifdef B3500000
+   result[3500000] = B3500000;
+#endif
+#ifdef B4000000
+   result[4000000] = B4000000;
+#endif
+       return result;
+}
+#endif

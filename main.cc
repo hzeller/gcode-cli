@@ -54,13 +54,13 @@ static int usage(const char *progname, const char *message) {
             "host:port or '-'\n"
             " * Serial connection\n"
             "   A path to the device name with an optional bit-rate\n"
-            "   separated with a comma.\n"
+            "   separated with a comma (otherwise default speed is 115200).\n"
             "   Examples of valid connection strings:\n"
             "   \t/dev/ttyACM0\n"
             "   \t/dev/ttyACM0,b115200\n"
             "   notice the 'b' prefix for the bit-rate."
 #ifdef USE_TERMIOS
-            "\n   Available bit-rates are one of [b9600, b19200, b38400, "
+            "\n   Common bit-rates are one of [b9600, b19200, b38400, "
             "b57600, b115200, b230400, b460800]\n"
 #else
             " (any value allowed supported by system)\n"
