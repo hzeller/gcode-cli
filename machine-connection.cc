@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -15,19 +16,22 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
-#include <map>
 #include <charconv>
+#include <map>
 #include <string>
 
+#if defined(__APPLE__)
+#include <IOKit/serial/ioss.h>
+#endif
+
 #if defined(__APPLE__) && !defined(USE_TERMIOS)
-#    define USE_TERMIOS
+#define USE_TERMIOS
 #endif
 
 #ifdef USE_TERMIOS
-#    include <termios.h>
+#include <termios.h>
 #else
-#    include <asm/termbits.h>
-#    include <sys/ioctl.h>
+#include <asm/termbits.h>
 #endif
 
 #ifdef USE_TERMIOS
@@ -41,7 +45,17 @@ using tty_termios_t = struct termios2;
 static std::map<int, speed_t> AvailableTTYSpeeds();
 #endif
 
-static bool SetTTYSpeed(tty_termios_t *tty, int speed_number) {
+bool MaybeAppleSpecificFallback(int fd, int bps) {
+#ifdef IOSSIOSPEED
+    // Apple has a specific ioctl to set arbitrary speed.
+    speed_t speed = bps;
+    return ioctl(fd, IOSSIOSPEED, &speed) == 0;
+#else
+    return false;
+#endif
+}
+
+static bool SetTTYSpeed(int fd, tty_termios_t *tty, int speed_number) {
     if (speed_number < 0) {
         fprintf(stderr, "Invalid speed %d\n", speed_number);
         return false;
@@ -51,6 +65,9 @@ static bool SetTTYSpeed(tty_termios_t *tty, int speed_number) {
     const std::map<int, speed_t> selectable_speeds = AvailableTTYSpeeds();
     const auto found = selectable_speeds.find(speed_number);
     if (found == selectable_speeds.end()) {
+        if (MaybeAppleSpecificFallback(fd, speed_number)) {
+            return true;  // averted :)
+        }
         fprintf(stderr, "Invalid speed '%d'; valid speeds are [", speed_number);
         const char *sep = "";
         for (const auto &[speed, _] : selectable_speeds) {
@@ -114,7 +131,7 @@ static bool SetTTYParams(int fd, std::string_view parameters) {
     tty.c_cc[VMIN] = 1;
     tty.c_cc[VTIME] = 1;
 
-    SetTTYSpeed(&tty, 115200);
+    SetTTYSpeed(fd, &tty, 115200);
     while (!parameters.empty()) {
         const auto pos = parameters.find(',');
         const auto part_len =
@@ -126,7 +143,7 @@ static bool SetTTYParams(int fd, std::string_view parameters) {
             int s;
             if (auto r = std::from_chars(param.begin() + 1, param.end(), s);
                 r.ec == std::errc()) {
-                if (!SetTTYSpeed(&tty, s)) return false;
+                if (!SetTTYSpeed(fd, &tty, s)) return false;
             }
             continue;
         }
@@ -237,9 +254,9 @@ int OpenTCPSocket(const char *host) {
 static int OpenTTY(std::string_view descriptor) {
     auto first_comma = descriptor.find(',');
     const std::string path(descriptor.substr(0, first_comma));
-    const std::string_view tty_params =
-        (first_comma != std::string_view::npos)
-        ? descriptor.substr(first_comma + 1) : "";
+    const std::string_view tty_params = (first_comma != std::string_view::npos)
+                                            ? descriptor.substr(first_comma + 1)
+                                            : "";
     const int fd = open(path.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
     if (fd < 0) {
         return -1;
@@ -326,86 +343,86 @@ static std::map<int, speed_t> AvailableTTYSpeeds() {
     // The following are from the manpage. There are more at the lower end,
     // but they are not really used these days.
 #ifdef B1200
-   result[1200] = B1200;
+    result[1200] = B1200;
 #endif
 #ifdef B1800
-   result[1800] = B1800;
+    result[1800] = B1800;
 #endif
 #ifdef B2400
-   result[2400] = B2400;
+    result[2400] = B2400;
 #endif
 #ifdef B4800
-   result[4800] = B4800;
+    result[4800] = B4800;
 #endif
 #ifdef B9600
-   result[9600] = B9600;
+    result[9600] = B9600;
 #endif
 #ifdef B19200
-   result[19200] = B19200;
+    result[19200] = B19200;
 #endif
 #ifdef B38400
-   result[38400] = B38400;
+    result[38400] = B38400;
 #endif
 #ifdef B57600
-   result[57600] = B57600;
+    result[57600] = B57600;
 #endif
 #ifdef B76800
-   result[76800] = B76800;
+    result[76800] = B76800;
 #endif
 #ifdef B115200
-   result[115200] = B115200;
+    result[115200] = B115200;
 #endif
 #ifdef B153600
-   result[153600] = B153600;
+    result[153600] = B153600;
 #endif
 #ifdef B230400
-   result[230400] = B230400;
+    result[230400] = B230400;
 #endif
 #ifdef B250000
-   result[250000] = B250000;
+    result[250000] = B250000;
 #endif
 #ifdef B307200
-   result[307200] = B307200;
+    result[307200] = B307200;
 #endif
 #ifdef B460800
-   result[460800] = B460800;
+    result[460800] = B460800;
 #endif
 #ifdef B500000
-   result[500000] = B500000;
+    result[500000] = B500000;
 #endif
 #ifdef B576000
-   result[576000] = B576000;
+    result[576000] = B576000;
 #endif
 #ifdef B614400
-   result[614400] = B614400;
+    result[614400] = B614400;
 #endif
 #ifdef B921600
-   result[921600] = B921600;
+    result[921600] = B921600;
 #endif
 #ifdef B1000000
-   result[1000000] = B1000000;
+    result[1000000] = B1000000;
 #endif
 #ifdef B1152000
-   result[1152000] = B1152000;
+    result[1152000] = B1152000;
 #endif
 #ifdef B1500000
-   result[1500000] = B1500000;
+    result[1500000] = B1500000;
 #endif
 #ifdef B2000000
-   result[2000000] = B2000000;
+    result[2000000] = B2000000;
 #endif
 #ifdef B2500000
-   result[2500000] = B2500000;
+    result[2500000] = B2500000;
 #endif
 #ifdef B3000000
-   result[3000000] = B3000000;
+    result[3000000] = B3000000;
 #endif
 #ifdef B3500000
-   result[3500000] = B3500000;
+    result[3500000] = B3500000;
 #endif
 #ifdef B4000000
-   result[4000000] = B4000000;
+    result[4000000] = B4000000;
 #endif
-       return result;
+    return result;
 }
 #endif
