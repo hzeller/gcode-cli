@@ -5,9 +5,8 @@ BasedOnStyle: Google
 # ... adapt to our local style.
 IndentWidth: 4
 ContinuationIndentWidth: 4
-IndentPPDirectives: None
 AllowShortCaseLabelsOnASingleLine: true
 AlignConsecutiveBitFields: true
 AlignConsecutiveMacros: true
 IndentCaseLabels: false
-IndentPPDirectives: AfterHash
+IndentPPDirectives: None
