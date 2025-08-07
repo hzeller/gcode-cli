@@ -4,38 +4,42 @@ on:
     branches:
       - master
   pull_request:
-
 jobs:
   BuildLinux:
-    runs-on: ubuntu-20.04  # test slightly older ubuntu.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         compiler:
           - g++
           - clang++
-
     name: Build ${{matrix.compiler}}
     steps:
       - name: Get the Source
-        uses: actions/checkout@v3
-
+        uses: actions/checkout@v4
       - name: Configure shell
         run: |
           echo "CXX=${{ matrix.compiler }}" >> $GITHUB_ENV
           echo "CXXFLAGS=-Werror" >> $GITHUB_ENV
-
       - name: Build
         run: |
           make -k
-
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcode-cli-linux-${{ matrix.compiler }}
+          path: gcode-cli
   BuildMac:
     name: Build Mac
     runs-on: macos-latest
     steps:
       - name: Get the Source
-        uses: actions/checkout@v3
-
+        uses: actions/checkout@v4
       - name: Build
         run: |
           make -k
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcode-cli-mac
+          path: gcode-cli
